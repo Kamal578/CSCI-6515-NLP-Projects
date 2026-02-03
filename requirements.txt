@@ -1,0 +1,7 @@
+requests
+tqdm
+mwparserfromhell
+regex
+numpy
+pandas
+matplotlib
