@@ -149,21 +149,24 @@ def fetch_pages_wikitext(titles: List[str], session: requests.Session) -> List[T
     return out
 
 
+import langid
+import re
+import mwparserfromhell
+
 def clean_wikitext_to_text(wikitext: str) -> str:
     """
-    Convert wikitext to plain-ish text.
-    Removes templates, refs, tables, files, categories, and keeps readable text.
+    Convert wikitext to plain text while removing templates, references, tables, files, categories, and sections.
+    Also removes English content using language detection.
     """
     code = mwparserfromhell.parse(wikitext)
 
-    # Remove templates, tags, and files/categories links
+    # Remove templates, tags, files, and category links
     for tpl in code.filter_templates(recursive=True):
         try:
             code.remove(tpl)
         except Exception:
             pass
 
-    # Remove refs and other tags
     for tag in code.filter_tags(recursive=True):
         try:
             code.remove(tag)
@@ -172,12 +175,34 @@ def clean_wikitext_to_text(wikitext: str) -> str:
 
     text = code.strip_code(normalize=True, collapse=True)
 
-    # Remove leftover brackets/markup noise and multiple spaces
+    # Remove category links and file links
     text = re.sub(r"\[\[Kateqoriya:[^\]]+\]\]", " ", text, flags=re.IGNORECASE)
     text = re.sub(r"\[\[(Fayl|File):[^\]]+\]\]", " ", text, flags=re.IGNORECASE)
+
+    # Remove specific sections like "External Links" and "See also"
+    text = re.sub(r"(?i)^(==\s*(External links|See also|Notes|References).+?==\s*$)(.|\n)*", "", text)
+
+    # Remove leftover markup noise and multiple spaces
     text = re.sub(r"\s+", " ", text).strip()
 
-    return text
+    # Filter out English-heavy sentences based on language detection
+    return remove_english_sentences(text)
+
+def remove_english_sentences(text: str, threshold: float = 0.7) -> str:
+    """
+    Removes lines where the dominant language is English based on language detection.
+    Threshold: fraction of words predicted as English
+    """
+    lines = text.splitlines()
+    result = []
+
+    for line in lines:
+        lang, score = langid.classify(line)
+        if lang == "en" and score > threshold:
+            continue
+        result.append(line)
+    return "\n".join(result)
+
 
 
 def save_corpus_csv(pages: List[Page], out_path: str) -> None:

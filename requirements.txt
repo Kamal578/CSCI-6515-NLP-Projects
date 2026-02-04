@@ -5,3 +5,4 @@ regex
 numpy
 pandas
 matplotlib
+langid
