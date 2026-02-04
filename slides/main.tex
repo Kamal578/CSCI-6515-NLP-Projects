@@ -1,0 +1,335 @@
+\documentclass{beamer}
+\usetheme{Madrid}
+\usecolortheme{default}
+\setbeamertemplate{footline}[frame number]
+
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{amsmath, amssymb}
+\usepackage{mathtools}
+\usepackage{listings}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single
+}
+
+\title{Spring 2026 Natural Language Processing (CSCI-6515)}
+\subtitle{Azerbaijani Wikipedia Corpus: Tokenization, Heaps' Law, BPE, Sentence Segmentation, and Spell Checking}
+\author{
+\textbf{Kamal Ahmadov} \\ \small kahmadov24700@ada.edu.az; kamal.ahmadov@gwu.edu \\ \and
+\textbf{Rufat Guliyev} \\ \small rguliyev24988@ada.edu.az; rufat.guliyev@gwu.edu
+}
+\institute{ADA University \& George Washington University}
+\date{February 5, 2026}
+
+\begin{document}
+
+%------------------------------------------------
+\begin{frame}
+  \titlepage
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Motivation}
+\begin{itemize}
+  \item Azerbaijani is a low-resource language for NLP research
+  \item Wikipedia provides freely licensed, diverse text data (CC BY-SA)
+  \item Goal: build a clean corpus and implement core preprocessing modules
+  \item Outputs are fully reproducible via \texttt{bash scripts/run\_all.sh}
+\end{itemize}
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Dataset Snapshot}
+\begin{itemize}
+  \item Source: Azerbaijani Wikipedia (MediaWiki API)
+  \item Cleaned corpus stored as CSV: \texttt{data/raw/corpus.csv}
+  \item Final size:
+  \begin{itemize}
+    \item 623 documents
+    \item 238,286 tokens
+    \item 48,151 unique token types
+  \end{itemize}
+\end{itemize}
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Cleaning Challenges}
+\begin{itemize}
+  \item Wikipedia markup noise:
+  \begin{itemize}
+    \item templates, categories, navigation text, references
+  \end{itemize}
+  \item Mixed-language artifacts (English-heavy references)
+  \item Broken punctuation / formatting residue
+  \item Short or empty pages removed to improve quality
+\end{itemize}
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Tokenization (Unicode-aware)}
+We tokenize using Unicode letter categories and preserve Azerbaijani characters.
+
+\[
+\text{token} \in \{\text{letters}\}^{+}
+\quad \text{with optional internal } ['-]
+\]
+
+Example:
+\[
+\texttt{``S.Rustamov 2.5 dəfə artırsaq''}
+\Rightarrow
+[\texttt{S.Rustamov},\ 2.5,\ \texttt{dəfə},\ \texttt{artırsaq}]
+\]
+
+\begin{itemize}
+  \item Handles diacritics: \texttt{ə, ğ, ö, ş, ü, ı, ç}
+  \item Keeps decimals to avoid splitting numeric expressions
+  \item Lowercasing used for vocabulary normalization
+\end{itemize}
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Zipf's Law (Rank--Frequency)}
+\begin{columns}
+\column{0.52\textwidth}
+\begin{itemize}
+  \item Empirical law for word frequencies
+  \item Frequency decays with rank
+\end{itemize}
+
+\[
+f(r) \propto \frac{1}{r^{s}}
+\quad\Rightarrow\quad
+\log f(r) = c - s \log r
+\]
+
+\begin{itemize}
+  \item Near-linear mid section on log--log plot
+  \item Confirms heavy-tailed behavior in our corpus
+\end{itemize}
+
+\column{0.48\textwidth}
+\centering
+\includegraphics[width=\linewidth]{../outputs/plots/zipf.png}
+\end{columns}
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Heaps' Law (Vocabulary Growth)}
+\begin{columns}
+\column{0.55\textwidth}
+\[
+V(N) = kN^{\beta}
+\quad\Rightarrow\quad
+\log V = \log k + \beta \log N
+\]
+
+\begin{itemize}
+  \item Sample $(N,V)$ every 1000 tokens
+  \item Fit $\log V$ vs.\ $\log N$ by linear regression
+\end{itemize}
+
+\[
+k = 4.57,\qquad \beta = 0.750
+\]
+
+\begin{itemize}
+  \item $\beta>0.5$ indicates fast vocabulary growth
+  \item Encyclopedic topics + named entities increase diversity
+\end{itemize}
+
+\column{0.45\textwidth}
+\centering
+\includegraphics[width=\linewidth]{../outputs/plots/heaps.png}
+\end{columns}
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Byte Pair Encoding (BPE)}
+BPE learns subword units by repeatedly merging the most frequent symbol pairs.
+
+\[
+(a,b) = \arg\max_{(x,y)} \text{freq}(x\,y)
+\quad\Rightarrow\quad
+xy \rightarrow \langle xy \rangle
+\]
+
+\begin{itemize}
+  \item Merges: 5000 \quad $\rightarrow$ \quad Subword vocab: 5239
+  \item Reduces OOV rate and helps with morphology
+\end{itemize}
+
+Example:
+\[
+\texttt{azərbaycanlılardan}
+\Rightarrow
+\texttt{azərbaycan} + \texttt{lı} + \texttt{lardan}
+\]
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Sentence Segmentation (Rule-based)}
+We detect sentence boundaries using punctuation + context rules.
+
+Boundary candidates:
+\[
+p \in \{.,!,?\}
+\]
+
+Do \textbf{NOT} split when:
+\[
+\text{decimal: } \quad \texttt{3.14},\ \texttt{50.5}
+\]
+\[
+\text{initial: } \quad \texttt{A. Məlikli},\ \texttt{S.Rustamov}
+\]
+\[
+\text{abbrev: } \quad \texttt{prof.},\ \texttt{Dr.}
+\]
+
+Split when:
+\[
+\text{quote close} + \text{space} + \text{Uppercase}
+\Rightarrow \text{boundary}
+\]
+
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Segmentation Struggles (Real Wikipedia Text)}
+\begin{itemize}
+  \item Period does not always mean sentence end:
+  \begin{itemize}
+    \item initials: \texttt{S.Rustamov}
+    \item abbreviations: \texttt{prof.}
+    \item decimals: \texttt{2.5 dəfə}
+  \end{itemize}
+  \item Quotes and guillemets: punctuation inside quotation marks
+  \item Lowercase continuation after punctuation (avoid over-splitting)
+  \item Trade-off: fewer false splits vs missing some true boundaries
+\end{itemize}
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Spell Checking: Levenshtein Distance}
+Baseline: Levenshtein distance via dynamic programming.
+
+\[
+D(i,j)=\min
+\begin{cases}
+D(i-1,j)+1 & \text{delete} \\
+D(i,j-1)+1 & \text{insert} \\
+D(i-1,j-1)+[x_i \neq y_j] & \text{substitute}
+\end{cases}
+\]
+
+\begin{itemize}
+  \item Given misspelled token $w$, search candidates $c \in V$
+  \item Rank by smallest $D(w,c)$ (with pruning / max distance)
+\end{itemize}
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Weighted Edit Distance (From Confusions)}
+We replace uniform substitution costs with learned costs from character confusions.
+
+\[
+\text{cost}(a\rightarrow b) = \frac{1}{\epsilon + P(b|a)}
+\]
+
+Weighted recurrence:
+\[
+D(i,j)=\min
+\begin{cases}
+D(i-1,j)+w_{\text{del}}(x_i) \\
+D(i,j-1)+w_{\text{ins}}(y_j) \\
+D(i-1,j-1)+w_{\text{sub}}(x_i,y_j)
+\end{cases}
+\]
+
+\begin{columns}
+\column{0.55\textwidth}
+\begin{itemize}
+  \item Confusions learned from synthetic misspellings
+  \item Common substitutions get lower penalty
+  \item Improves ranking of realistic corrections
+\end{itemize}
+\column{0.45\textwidth}
+\centering
+\includegraphics[width=\linewidth]{../outputs/spellcheck/confusion_heatmap.png}
+\end{columns}
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Evaluation Metrics}
+We evaluate spellchecker ranking using Accuracy@k.
+
+\[
+\text{Acc@k} = \frac{1}{n}\sum_{i=1}^{n}
+\mathbf{1}\{y_i \in \text{TopK}(x_i)\}
+\]
+
+Results on 1000 synthetic misspellings:
+\[
+\text{Acc@1}=0.637,\qquad \text{Acc@5}=0.801
+\]
+
+\begin{itemize}
+  \item Acc@1 = strict correction success
+  \item Acc@5 = practical usefulness of suggestions
+\end{itemize}
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Key Outputs (Reproducibility)}
+\begin{itemize}
+  \item Run everything:
+  \begin{itemize}
+    \item \texttt{bash scripts/run\_all.sh}
+  \end{itemize}
+  \item Plots:
+  \begin{itemize}
+    \item \texttt{outputs/plots/zipf.png}, \texttt{outputs/plots/heaps.png}
+  \end{itemize}
+  \item BPE:
+  \begin{itemize}
+    \item \texttt{outputs/bpe/merges.txt}, \texttt{bpe\_summary.json}
+  \end{itemize}
+  \item Spellcheck:
+  \begin{itemize}
+    \item \texttt{spell\_eval.json}, \texttt{confusion\_heatmap.png}
+  \end{itemize}
+\end{itemize}
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Conclusion}
+\begin{itemize}
+  \item Built a clean Azerbaijani Wikipedia corpus (623 docs)
+  \item Verified Zipf-like distribution and fitted Heaps' law
+  \item Trained BPE subword model for robust tokenization
+  \item Implemented rule-based sentence segmentation with edge-case handling
+  \item Developed spellchecker with weighted edit distance; Acc@5 = 0.801
+\end{itemize}
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Future Work}
+\begin{itemize}
+  \item Improve cleaning and Azerbaijani-only filtering earlier
+  \item Replace synthetic gold data with manual annotations
+  \item Context-aware spell correction using language model scoring
+  \item Explore neural sentence segmentation as stronger baseline
+\end{itemize}
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}
+\centering
+\Huge Questions?
+\end{frame}
+
+\end{document}

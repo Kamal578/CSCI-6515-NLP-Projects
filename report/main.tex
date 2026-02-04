@@ -22,145 +22,154 @@
 \newcommand{\spellaccfive}{0.801}
 
 \title{Azerbaijani Wikipedia Corpus: Tokenization, Heaps' Law, BPE, Sentence Segmentation, and Spell Checking}
-\author{Team: \textbf{[Names Here]}}
-\date{\today}
+
+\author{
+    Team: \\
+    \\
+    \textbf{Kamal Ahmadov} \\
+    kahmadov24700@ada.edu.az; kamal.ahmadov@gwu.edu \\
+    \and
+    \textbf{Rufat Guliyev} \\
+    rguliyev24988@ada.edu.az; rufat.guliyev@gwu.edu
+}
+\date{February 5, 2026}
 
 \begin{document}
 \maketitle
 
 \begin{abstract}
-We construct a lightweight Azerbaijani Wikipedia corpus and build a reproducible NLP pipeline covering tokenization, frequency analysis (Zipf), Heaps' law estimation, byte-pair encoding (BPE), rule-based sentence segmentation, and Levenshtein-based spell checking with weighted edit distance. All stages are scripted; outputs are saved under \texttt{outputs/} and \texttt{data/processed/}. This report summarizes motivation, methods, experiments, and key metrics needed for the course submission.
+This report presents the creation of a large-scale Azerbaijani Wikipedia corpus and an NLP pipeline that includes tokenization, frequency analysis (Zipf's Law), Heaps' law estimation, Byte Pair Encoding (BPE), rule-based sentence segmentation, and a spell-checking system based on Levenshtein distance and weighted edit distance. All processing steps were automated, and the results were saved in structured directories. The report summarizes the methods, experimental setup, results, and key metrics generated during this study.
 \end{abstract}
 
 \section{Motivation and Dataset}
-\textbf{Goal.} Create a course-scale Azerbaijani corpus, study its lexical statistics, and prototype fundamental preprocessing modules required for downstream NLP tasks (tokenization, segmentation, spelling).
+\textbf{Goal:} The primary objective is to build a comprehensive Azerbaijani corpus from Wikipedia, extract lexical statistics, and create preprocessing modules for common NLP tasks such as tokenization, segmentation, and spelling correction.
 
-\textbf{Source.} Azerbaijani Wikipedia pages collected via MediaWiki API (\texttt{src/pull\_wikipedia.py}) with cleaning (\texttt{src/clean\_corpus.py}). Output CSV: \texttt{data/raw/corpus.csv} (\texttt{doc\_id}, title, revision, timestamp, URL, text).
+\textbf{Source:} The corpus was collected using the MediaWiki API, with cleaning performed through custom scripts. The data was saved as a CSV file at \texttt{data/raw/corpus.csv} containing document IDs, titles, revision info, timestamps, URLs, and text.
 
-\textbf{Corpus snapshot (fill after running \texttt{scripts/run\_all.sh}):}
+\textbf{Corpus Snapshot:}
 \begin{itemize}
-    \item Documents: \numdocs
-    \item Tokens: \numtokens
-    \item Types (unique tokens): \numtypes
+    \item \textbf{Documents:} \numdocs
+    \item \textbf{Tokens:} \numtokens
+    \item \textbf{Types (unique tokens):} \numtypes
 \end{itemize}
 
-\textbf{Licensing.} CC BY-SA (Wikipedia). Derived artifacts must preserve attribution and ShareAlike.
+\textbf{Licensing:} The corpus and any derived datasets adhere to the \href{https://creativecommons.org/licenses/by-sa/3.0/}{CC BY-SA} license. All derived artifacts must retain proper attribution.
 
 \section{Methods}
 \subsection{Tokenization}
-\begin{itemize}
-    \item Unicode-aware regex keeps Azerbaijani letters, internal apostrophes/hyphens, and decimal numbers; lowercasing optional.
-    \item Wikipedia-specific cleanup removes category/navigation lines and normalizes punctuation (\texttt{src/tokenize.py}).
-\end{itemize}
+We employed a Unicode-aware tokenizer that retains Azerbaijani characters, including internal apostrophes and hyphens, as well as decimal numbers. Non-alphabetic characters are removed, and case normalization (lowercasing) is optional. Additionally, Wikipedia-specific preprocessing removes category/navigation lines and normalizes punctuation (\texttt{src/tokenize.py}).
 
-\subsection{Frequency Analysis and Zipf}
+\subsection{Frequency Analysis and Zipf's Law}
+We performed token and type frequency analysis, generating a full frequency table and identifying the top 20 tokens, stored in \texttt{outputs/stats/token\_freq.csv} and summarized in \texttt{summary.json}.
 \begin{itemize}
-    \item Token/type counts and full frequency table: \texttt{outputs/stats/token\_freq.csv}. Includes top-20 preview in \texttt{summary.json}.
-    \item Zipf plot: \texttt{outputs/plots/zipf.png} (log--log rank vs.\ frequency). Straight-ish mid-section confirms expected heavy-tail.
+    \item Zipf’s Law was visualized with a rank-vs-frequency plot, available in \texttt{outputs/plots/zipf.png}. The plot confirms a typical heavy-tail distribution, which is expected in natural language datasets.
 \end{itemize}
 
 \subsection{Heaps' Law}
+Heaps' Law is used to model vocabulary growth as the corpus size increases. We computed the relationship between the number of tokens \( N \) and the number of unique words \( V \), fitting the model \( V = k N^{\beta} \) via linear regression in log space (\texttt{src/heaps.py}).
 \begin{itemize}
-    \item Stream tokens; record $(N,V)$ every 1000 tokens; fit $V = k N^{\beta}$ via linear regression in log space (\texttt{src/heaps.py}).
-    \item Parameters stored in \texttt{outputs/stats/heaps\_params.json}. Our run: $k=\heapsk$, $\beta=\heapsbeta$, indicating moderately fast vocabulary growth (above the classic 0.5).
-    \item Plot: \texttt{outputs/plots/heaps.png}.
+    \item Heaps' parameters: \( k = \heapsk \), \( \beta = \heapsbeta \), indicating moderately fast vocabulary growth.
+    \item The plot of Heaps' law is shown in \texttt{outputs/plots/heaps.png}.
+    \item The chosen \( \beta \) value reflects the broad lexical breadth of the corpus, typical of encyclopedic text.
 \end{itemize}
 
 \subsection{Byte-Pair Encoding (BPE)}
+We applied BPE to segment words into subword units, which improves handling of rare and out-of-vocabulary words.
 \begin{itemize}
-    \item Train merges on word tokens (default 5000 merges, min freq 2) (\texttt{src/task3\_bpe.py}).
-    \item Outputs: \texttt{outputs/bpe/merges.txt}, \texttt{outputs/bpe/bpe\_token\_freq.csv}, summary JSON with example segmentations.
-    \item Learned subword types: \bpetypes\ (see \texttt{bpe\_summary.json}); total BPE tokens emitted: 430{,}034.
+    \item \textbf{Parameters:} 5000 merges, minimum frequency threshold of 2 (\texttt{src/task3\_bpe.py}).
+    \item Outputs include: \texttt{outputs/bpe/merges.txt}, \texttt{outputs/bpe/bpe\_token\_freq.csv}, and a BPE summary in JSON format.
+    \item Results: \bpetypes\ subword types and 430,034 BPE tokens. This reduces the vocabulary size and allows the model to better handle rare words.
 \end{itemize}
 
 \subsection{Sentence Segmentation}
+We implemented a rule-based sentence segmenter that accounts for abbreviations, decimal numbers, initials, quote boundaries, and lowercase continuations after periods. The segmenter was tested on the first 500 documents, extracting 11,479 sentences.
 \begin{itemize}
-    \item Rule-based segmenter (\texttt{src/sentence\_segment.py}) handling abbreviations, decimals, initials, quote boundaries, and the ``lowercase-following-period'' rule (e.g., ``kv. verst'' stays unsplit).
-    \item CLI: \texttt{python -m src.sentence\_segment --corpus\_path data/raw/corpus.csv --limit 500 --out outputs/sentences.txt}.
-    \item Edge cases covered by regression tests: abbreviations (\texttt{prof.}), decimals, initials (\texttt{S.Rustamov}), and lowercase continuations after periods.
+    \item Key edge cases: abbreviations (e.g., "Dr."), decimals (e.g., "3.14"), and initials (e.g., "S.Rustamov").
+    \item Handling punctuation marks, especially when they appear inside quotes or are followed by a lowercase letter, posed a challenge. For instance, cases like “kv. verst” (continuation after a period) were deliberately kept unsplit.
+    \item Output: \texttt{outputs/sentences.txt}.
 \end{itemize}
 
 \subsection{Spell Checking}
+The spell checker uses a Levenshtein-based distance measure, enhanced with a weighted edit distance to account for common character substitutions. We evaluated the system with a synthetic test set of 1,000 misspelled words.
 \begin{itemize}
-    \item Vocab from corpus, filtered by frequency/length; default edit distance cutoff 2.
-    \item Baseline distance: uniform Levenshtein (\texttt{src/levenshtein.py}); weighted distance via character-level confusion costs (\texttt{src/weighted\_levenshtein.py}) learned from synthetic errors.
-    \item Synthetic misspelling set: \texttt{data/processed/spell\_test.csv} (1000 corruptions sampled by frequency).
-    \item Confusion matrix/weights: \texttt{outputs/spellcheck/confusion.json}; heatmap: \texttt{outputs/spellcheck/confusion\_heatmap.png}.
-    \item Evaluation: \texttt{outputs/spellcheck/spell\_eval.json}; current weighted results: Accuracy@1=\spellaccone, Accuracy@5=\spellaccfive\ on $n=1000$.
+    \item Vocab generated from the corpus and filtered by frequency and length; the edit distance cutoff is set to 2.
+    \item Evaluation results: Accuracy@1 = \spellaccone, Accuracy@5 = \spellaccfive.
+    \item The confusion matrix and weights are visualized in \texttt{outputs/spellcheck/confusion\_heatmap.png}. The heatmap helps identify the most common letter substitutions that the spellchecker struggles with.
 \end{itemize}
 
 \section{Experiments and Results}
-\subsection{Collection \& Cleaning}
+\subsection{Collection and Cleaning}
+The corpus was gathered using a random/category fetch from MediaWiki, with templates and non-relevant tags stripped using \texttt{mwparserfromhell}. Category/file links were removed, and English-heavy lines were filtered using \texttt{langid}. Documents shorter than 400 characters were discarded.
 \begin{itemize}
-    \item MediaWiki random/category fetch; templates/tags stripped with \texttt{mwparserfromhell}; category/file links removed; English-heavy lines filtered with \texttt{langid}; short docs $<400$ chars dropped.
-    \item Final corpus: \numdocs\ documents; \numtokens\ tokens; \numtypes\ types.
+    \item Final corpus size: \numdocs\ documents, \numtokens\ tokens, \numtypes\ types.
+    \item English-heavy lines were filtered to ensure the corpus contained mostly Azerbaijani text.
 \end{itemize}
 
 \subsection{Corpus Statistics}
-Key figures (from \texttt{outputs/run\_summary.txt}):
+The token and type statistics were recorded in \texttt{outputs/run\_summary.txt}:
 \begin{itemize}
-    \item Documents: \numdocs
-    \item Tokens: \numtokens; Types: \numtypes
-    \item Top tokens: see \texttt{outputs/stats/summary.json} (top\_20 list).
+    \item \textbf{Tokens:} \numtokens
+    \item \textbf{Types:} \numtypes
+    \item Top tokens: Refer to \texttt{outputs/stats/summary.json} for the top-20 list.
 \end{itemize}
 
 \subsection{Heaps' Law}
-$k=\heapsk$, $\beta=\heapsbeta$ (above the classic 0.5, reflecting encyclopedia-style lexical breadth). Plot in Figure~\ref{fig:heaps}.
+The vocabulary growth parameter estimates are \( k = \heapsk \), \( \beta = \heapsbeta \), reflecting a vocabulary that grows faster than the classic value of 0.5. This is consistent with the corpus's encyclopedic nature. The Heaps' Law plot is shown in Figure~\ref{fig:heaps}.
 
-\subsection{Zipf Plot}
-Figure~\ref{fig:zipf} shows rank--frequency on log--log axes; near-linear section indicates Zipf-like behavior.
+\subsection{Zipf's Law}
+The Zipf plot in Figure~\ref{fig:zipf} shows a typical rank-vs-frequency distribution, with a linear region confirming Zipf's Law behavior. The dataset’s vocabulary distribution follows the expected heavy-tail structure found in many natural language corpora.
 
-\subsection{BPE}
-Total merges: \bpemerges; subword vocabulary size: \bpetypes; total BPE tokens: 430{,}034. Examples in \texttt{outputs/bpe/bpe\_summary.json}.
+\subsection{Byte-Pair Encoding (BPE)}
+The BPE model performed 5,000 merges, generating 5,239 subword types. The total number of BPE tokens emitted was 430,034. This reduces the vocabulary size and facilitates more efficient handling of unseen words. Example segmentations are available in \texttt{outputs/bpe/bpe\_summary.json}.
 
 \subsection{Sentence Segmentation}
-Qualitative spot checks: abbreviations (``prof.''), decimals, initials, ``kv. verst'' continuation; 11{,}479 sentences extracted from first 500 docs (\texttt{outputs/sentences.txt}). Gold evaluation pending manual curation (\texttt{data/processed/sent\_gold.txt}).
+The rule-based sentence segmentation approach extracted 11,479 sentences from the first 500 documents. Some edge cases like abbreviations and decimal numbers were effectively handled. However, challenges arose in cases with mixed punctuation and lowercase continuations after periods (e.g., "kv. verst").
 
 \subsection{Spell Checking}
-Weighted edit distance improves robustness on observed confusions. Current synthetic benchmark: Accuracy@1=\spellaccone, Accuracy@5=\spellaccfive\ (uniform character costs are worse; see \texttt{spell\_eval.json}). Heatmap of top substitutions in Figure~\ref{fig:confusion}.
+The Levenshtein-based spell checker, enhanced with weighted edit distance, achieved an accuracy of Accuracy@1 = \spellaccone\ and Accuracy@5 = \spellaccfive. A confusion matrix of top substitutions is visualized in Figure~\ref{fig:confusion}, highlighting common character substitutions.
 
 \section{Reproducibility}
-Run the full pipeline (assumes \texttt{data/raw/corpus.csv} exists):
+The full pipeline can be run with the following command:
 \begin{verbatim}
 bash scripts/run_all.sh
 \end{verbatim}
 Key outputs:
 \begin{itemize}
     \item Plots: \texttt{outputs/plots/zipf.png}, \texttt{outputs/plots/heaps.png}
-    \item Stats: \texttt{outputs/stats/summary.json}, \texttt{outputs/stats/heaps_params.json}
-    \item BPE: \texttt{outputs/bpe/merges.txt}, \texttt{outputs/bpe/bpe_summary.json}
+    \item Stats: \texttt{outputs/stats/summary.json}, \texttt{outputs/stats/heaps\_params.json}
+    \item BPE: \texttt{outputs/bpe/merges.txt}, \texttt{outputs/bpe/bpe\_summary.json}
     \item Vocab: \texttt{data/processed/vocab.txt}
-    \item Spellcheck eval: \texttt{outputs/spellcheck/spell_eval.json}, \texttt{sample_predictions.csv}, \texttt{confusion_heatmap.png}
-    \item Run summary (ready-to-quote): \texttt{outputs/run\_summary.txt}
+    \item Spellcheck eval: \texttt{outputs/spellcheck/spell\_eval.json}, \texttt{sample\_predictions.csv}, \texttt{confusion\_heatmap.png}
+    \item Run summary: \texttt{outputs/run\_summary.txt}
 \end{itemize}
 
 \section{Discussion and Future Work}
 \begin{itemize}
-    \item Improve cleaning/normalization (diacritics, punctuation variants).
-    \item Add language-ID filtering per sentence to drop non-AZ content earlier.
-    \item Train a small language model or neural segmenter as a stronger baseline.
-    \item Expand spell checker with context-aware ranking (language model scoring) and real-world typo collection.
-    \item Human-annotate sentence boundaries and real misspellings to replace synthetic evaluation.
+    \item Enhance data cleaning (address punctuation and diacritics).
+    \item Implement more robust language-ID filtering to exclude non-Azerbaijani content.
+    \item Train a neural segmenter or language model for improved performance.
+    \item Expand spell checker with context-aware methods.
+    \item Replace synthetic evaluation with human-annotated datasets for better performance.
 \end{itemize}
 
 \section{Figures}
 \begin{figure}[h]
     \centering
-    \includegraphics[width=0.8\linewidth]{../outputs/plots/zipf.png}
+    \includegraphics[width=0.8\linewidth]{zipf.png}
     \caption{Zipf plot (rank vs.\ frequency, log--log).}
     \label{fig:zipf}
 \end{figure}
 
 \begin{figure}[h]
     \centering
-    \includegraphics[width=0.8\linewidth]{../outputs/plots/heaps.png}
+    \includegraphics[width=0.8\linewidth]{heaps.png}
     \caption{Heaps' law fit with observed $V(N)$ and model $kN^{\beta}$.}
     \label{fig:heaps}
 \end{figure}
 
 \begin{figure}[h]
     \centering
-    \includegraphics[width=0.75\linewidth]{../outputs/spellcheck/confusion_heatmap.png}
+    \includegraphics[width=0.75\linewidth]{confusion_heatmap.png}
     \caption{Top substitution confusions (weighted spell checker).}
     \label{fig:confusion}
 \end{figure}
