@@ -18,10 +18,17 @@ def eval_spellcheck(
     top_k: int = 5,
     min_freq: int = 2,
     min_len: int = 3,
+    confusion_path: str | None = None,
 ):
     df = pd.read_csv(test_csv)
     freqs = load_freqs(corpus_path, lowercase=True)
     vocab = filter_vocab(freqs, min_freq=min_freq, min_len=min_len)
+
+    weights = None
+    if confusion_path:
+        import json
+        raw = json.loads(Path(confusion_path).read_text(encoding="utf-8"))
+        weights = {eval(k): float(v) for k, v in raw.get("weights", {}).items()}
 
     total = len(df)
     hits1 = 0
@@ -31,7 +38,7 @@ def eval_spellcheck(
     for _, row in df.iterrows():
         miss = row["misspelled"]
         correct = row["correct"]
-        cands = suggest(miss, vocab, max_dist=max_dist, top_k=top_k)
+        cands = suggest(miss, vocab, max_dist=max_dist, top_k=top_k, weights=weights)
         cand_words = [w for w, _ in cands]
         if cand_words and cand_words[0] == correct:
             hits1 += 1
@@ -56,6 +63,7 @@ def eval_spellcheck(
         "top_k": top_k,
         "vocab_size": len(vocab),
         "test_csv": test_csv,
+        "confusion_path": confusion_path,
     }
 
     out_sum_path = Path(out_summary)
@@ -81,6 +89,7 @@ def main():
     ap.add_argument("--top_k", type=int, default=5)
     ap.add_argument("--min_freq", type=int, default=2)
     ap.add_argument("--min_len", type=int, default=3)
+    ap.add_argument("--confusion", type=str, help="Path to confusion.json for weighted edit distance.")
     args = ap.parse_args()
 
     eval_spellcheck(
@@ -92,6 +101,7 @@ def main():
         top_k=args.top_k,
         min_freq=args.min_freq,
         min_len=args.min_len,
+        confusion_path=args.confusion,
     )
 
 

@@ -7,7 +7,10 @@ from typing import Dict, Iterable, List, Tuple, Optional
 
 import pandas as pd
 
+from .tokenize import iter_tokens
+
 from .levenshtein import levenshtein
+from .weighted_levenshtein import weighted_levenshtein
 from .spell_utils import load_freqs, filter_vocab
 
 
@@ -23,12 +26,21 @@ def load_vocab(
     return freqs
 
 
-def suggest(word: str, vocab: Dict[str, int], max_dist: int = 2, top_k: int = 5) -> List[Tuple[str, int]]:
+def suggest(
+    word: str,
+    vocab: Dict[str, int],
+    max_dist: int = 2,
+    top_k: int = 5,
+    weights: Dict | None = None,
+) -> List[Tuple[str, int]]:
     candidates: List[Tuple[int, int, str]] = []  # (dist, -freq, token)
     for tok, freq in vocab.items():
         if abs(len(tok) - len(word)) > max_dist:
             continue
-        dist = levenshtein(word, tok, max_dist=max_dist)
+        if weights:
+            dist = weighted_levenshtein(word, tok, weights, max_cost=max_dist)
+        else:
+            dist = levenshtein(word, tok, max_dist=max_dist)
         if dist <= max_dist:
             candidates.append((dist, -freq, tok))
     candidates.sort()
@@ -48,6 +60,7 @@ def main():
     ap.add_argument("--max_upper_ratio", type=float, default=0.6, help="Drop tokens with higher uppercase ratio (acronyms).")
     ap.add_argument("--max_dist", type=int, default=2, help="Maximum edit distance for candidates.")
     ap.add_argument("--top_k", type=int, default=5, help="Return up to this many suggestions.")
+    ap.add_argument("--confusion", type=str, help="Path to confusion.json (weights) to enable weighted edit distance.")
 
     target = ap.add_mutually_exclusive_group(required=True)
     target.add_argument("--word", type=str, help="Single word to correct.")
@@ -63,6 +76,16 @@ def main():
         min_len=args.min_len,
         max_upper_ratio=args.max_upper_ratio,
     )
+    weights = None
+    if args.confusion:
+        import json
+        weights_data = json.loads(Path(args.confusion).read_text(encoding="utf-8"))
+        # weights were stored with stringified keys; eval back the tuple
+        w = {}
+        for k, v in weights_data.get("weights", {}).items():
+            # k format: "('sub', 'a', 'b')" etc.
+            w[eval(k)] = float(v)
+        weights = w
     known = set(vocab.keys())
 
     if args.word:
@@ -77,7 +100,7 @@ def main():
     for w in words:
         if w in known:
             continue
-        cands = suggest(w, vocab, max_dist=args.max_dist, top_k=args.top_k)
+        cands = suggest(w, vocab, max_dist=args.max_dist, top_k=args.top_k, weights=weights)
         if cands:
             suggestion_str = ", ".join([f"{tok} (freq={freq})" for tok, freq in cands])
         else:
