@@ -97,3 +97,23 @@ python -m src.task1_stats
 python -m src.heaps
 python -m src.task3_bpe
 ```
+
+## Spellcheck example
+Provide a wordlist (one word per line) and write suggestions to `outputs/spellcheck`:
+```
+printf "kvverst\nazrbaycan\n" > /tmp/typos.txt
+python -m src.spellcheck --corpus_path data/raw/corpus.csv \
+    --wordlist /tmp/typos.txt \
+    --out outputs/spellcheck/typos_suggestions.txt
+```
+
+## Build a filtered vocabulary
+Create a vocab with frequency/length filtering (useful for spellcheck and other tasks):
+```
+python -m src.build_vocab \
+  --corpus_path data/raw/corpus.csv \
+  --min_freq 3 \
+  --min_len 3 \
+  --vocab_path data/processed/vocab.txt \
+  --summary_path outputs/stats/vocab_summary.json
+```

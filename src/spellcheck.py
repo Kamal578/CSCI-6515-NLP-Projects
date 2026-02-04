@@ -3,42 +3,32 @@ from __future__ import annotations
 import argparse
 from collections import Counter
 from pathlib import Path
-from typing import Dict, Iterable, List, Tuple
+from typing import Dict, Iterable, List, Tuple, Optional
 
 import pandas as pd
 
-from .tokenize import iter_tokens
+from .levenshtein import levenshtein
+from .spell_utils import load_freqs, filter_vocab
 
 
-def load_vocab(corpus_path: str, lowercase: bool = True, min_freq: int = 1) -> Counter:
-    df = pd.read_csv(corpus_path)
-    freqs = Counter(iter_tokens(df["text"].fillna("").astype(str).tolist(), lowercase=lowercase))
-    if min_freq > 1:
-        freqs = Counter({w: c for w, c in freqs.items() if c >= min_freq})
+def load_vocab(
+    corpus_path: str,
+    lowercase: bool = True,
+    min_freq: int = 2,
+    min_len: int = 3,
+    max_upper_ratio: float = 0.6,
+) -> Counter:
+    freqs = load_freqs(corpus_path, lowercase=lowercase)
+    freqs = filter_vocab(freqs, min_freq=min_freq, min_len=min_len, max_upper_ratio=max_upper_ratio)
     return freqs
 
 
-def levenshtein(a: str, b: str) -> int:
-    if a == b:
-        return 0
-    if len(a) < len(b):
-        a, b = b, a
-    previous = list(range(len(b) + 1))
-    for i, ca in enumerate(a, 1):
-        current = [i]
-        for j, cb in enumerate(b, 1):
-            ins = current[j - 1] + 1
-            del_ = previous[j] + 1
-            sub = previous[j - 1] + (ca != cb)
-            current.append(min(ins, del_, sub))
-        previous = current
-    return previous[-1]
-
-
 def suggest(word: str, vocab: Dict[str, int], max_dist: int = 2, top_k: int = 5) -> List[Tuple[str, int]]:
-    candidates: List[Tuple[str, int, int]] = []  # (dist, -freq, token)
+    candidates: List[Tuple[int, int, str]] = []  # (dist, -freq, token)
     for tok, freq in vocab.items():
-        dist = levenshtein(word, tok)
+        if abs(len(tok) - len(word)) > max_dist:
+            continue
+        dist = levenshtein(word, tok, max_dist=max_dist)
         if dist <= max_dist:
             candidates.append((dist, -freq, tok))
     candidates.sort()
@@ -53,7 +43,9 @@ def main():
     ap = argparse.ArgumentParser(description="Simple spell checker using Levenshtein distance over corpus vocabulary.")
     ap.add_argument("--corpus_path", type=str, default="data/raw/corpus.csv", help="CSV with 'text' column.")
     ap.add_argument("--lowercase", action="store_true", default=True, help="Lowercase tokens for vocab/building.")
-    ap.add_argument("--min_freq", type=int, default=1, help="Drop vocab items under this count.")
+    ap.add_argument("--min_freq", type=int, default=2, help="Drop vocab items under this count.")
+    ap.add_argument("--min_len", type=int, default=3, help="Drop vocab items shorter than this.")
+    ap.add_argument("--max_upper_ratio", type=float, default=0.6, help="Drop tokens with higher uppercase ratio (acronyms).")
     ap.add_argument("--max_dist", type=int, default=2, help="Maximum edit distance for candidates.")
     ap.add_argument("--top_k", type=int, default=5, help="Return up to this many suggestions.")
 
@@ -64,7 +56,13 @@ def main():
     ap.add_argument("--out", type=str, default="outputs/spellcheck/suggestions.txt", help="Where to write suggestions.")
     args = ap.parse_args()
 
-    vocab = load_vocab(args.corpus_path, lowercase=args.lowercase, min_freq=args.min_freq)
+    vocab = load_vocab(
+        args.corpus_path,
+        lowercase=args.lowercase,
+        min_freq=args.min_freq,
+        min_len=args.min_len,
+        max_upper_ratio=args.max_upper_ratio,
+    )
     known = set(vocab.keys())
 
     if args.word:
