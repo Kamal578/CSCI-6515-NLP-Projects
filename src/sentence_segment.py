@@ -15,14 +15,74 @@ QUOTE_CLOSE = set(['"', "'", "”", "»", "›", "‟", "’", "‛", "」", "�
 
 # ----------------------------
 # Abbreviations (normalize)
-# Merge domain-specific abbreviations from both implementations
 # ----------------------------
 ABBREVIATIONS = {
     "dr", "mr", "mrs", "ms", "prof", "etc", "e.g", "i.e",
-    "a.m", "s.a", "b.c", "m.a", "ph.d", "u.s",
-    "t.k", "beyləqan", "azərbaycan", "ünvan", "cən", "m", "s", "ş", "b.k.",
-    "q.k", "akademiya", "şirkət", "futbolçu", "nömrə"
+    "a.m", "s.a", "b.c", "m.a", "ph.d", "u.s"
 }
+
+# Sentence-ending punctuation candidates
+SENT_END = {".", "!", "?"}
+
+
+def normalize_token(tok: str) -> str:
+    # strip surrounding quotes and trailing punctuation
+    tok = tok.strip()
+    tok = tok.strip("".join(QUOTE_OPEN | QUOTE_CLOSE))
+    tok = tok.rstrip(".,!?;:")
+    return tok.lower()
+
+
+def is_abbreviation(token: str) -> bool:
+    return normalize_token(token) in ABBREVIATIONS
+
+
+def is_surrounded_by_non_space(text: str, i: int) -> bool:
+    """
+    For '.' or ',' inside tokens like:
+      154.5, a=5,1, S.Rustamov, U.S., 10km/saat (not spaces)
+    """
+    if i <= 0 or i >= len(text) - 1:
+        return False
+    return (text[i - 1] != " " and text[i + 1] != " ")
+
+
+def is_decimal_dot_or_comma(text: str, i: int) -> bool:
+    """
+    Detect 3.14 or 2,5 (digit on both sides)
+    """
+    if i <= 0 or i >= len(text) - 1:
+        return False
+    return text[i - 1].isdigit() and text[i + 1].isdigit()
+
+
+def is_initial_period(text: str, i: int) -> bool:
+    """
+    If '.' after a single capital letter, e.g., "A." or "S."
+    """
+    return i > 0 and text[i] == "." and text[i - 1].isupper()
+
+
+def is_compact_initials(token: str) -> bool:
+    """
+    Detect forms like A.M., S.B., J.Epstein (partial), S.Rustamov
+    We'll treat tokens containing a capital + '.' + (capital OR letter) as non-boundary token.
+    """
+    return bool(re.search(r"\b[A-Z]\.[A-ZƏÖÜİĞÇŞ]", token))
+
+
+def quote_followed_by_space_upper(text: str, i: int) -> bool:
+    """
+    NEW RULE (generalized):
+    If a closing quote is followed by space + uppercase letter, we break.
+    Example: ... "citation." NewSentence
+             ... » NewSentence
+    """
+    if text[i] not in QUOTE_CLOSE:
+        return False
+    if i + 2 >= len(text):
+        return False
+    return text[i + 1] == " " and text[i + 2].isupper()
 
 SENT_END = {".", "!", "?"}
 DECIMAL_RE = re.compile(r"\d+[.,]\d+")
