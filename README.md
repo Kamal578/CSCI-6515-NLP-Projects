@@ -1,6 +1,6 @@
 # Azerbaijani Wikipedia NLP Pipeline
 
-End-to-end mini-pipeline for collecting a small Azerbaijani Wikipedia corpus and running core NLP exploratory tasks: tokenization, frequency stats (Zipf), Heaps' law fit, and byte-pair encoding (BPE). Code is script-first to keep the workflow transparent for coursework.
+End-to-end mini-pipeline for collecting, cleaning, and exploring an Azerbaijani Wikipedia corpus. It covers tokenization, frequency stats (Zipf), Heaps' law fit, BPE, sentence segmentation, and spell checking (uniform + weighted edit distance), with reproducible scripts and report-ready outputs.
 
 ## Repo Layout
 - `src/pull_wikipedia.py` — collect and clean Azerbaijani Wikipedia pages via the MediaWiki API.
@@ -8,10 +8,15 @@ End-to-end mini-pipeline for collecting a small Azerbaijani Wikipedia corpus and
 - `src/task1_stats.py` — token/type counts, frequency table, optional Zipf plot.
 - `src/heaps.py` — Heaps' law (V = k * N^beta) estimation and log-log plot.
 - `src/task3_bpe.py` and `src/bpe.py` — train BPE merges and encode the corpus; export merges and token frequencies.
+- `src/sentence_segment.py` — rule-based sentence segmentation CLI (handles abbreviations, decimals, initials, quotes, lowercase continuations).
+- `src/spellcheck.py` — Levenshtein/weighted spell checker CLI.
+- `src/make_spell_test.py`, `src/confusion.py`, `src/eval_spellcheck.py`, `src/plot_confusion.py` — synthetic spell benchmark, confusion weights, evaluation, and heatmap.
+- `src/build_vocab.py` — filtered vocabulary builder.
 - `data/` — input data; expects `data/raw/corpus.csv` created by the collector.
-- `outputs/` — auto-created results (`stats/`, `plots/`, `bpe/`, etc.).
+- `outputs/` — auto-created results (`stats/`, `plots/`, `bpe/`, `spellcheck/`, etc.).
 - `notebooks/Main.ipynb` — scratchpad/EDA; mirrors the script workflow.
 - `DATASHEET.md` — dataset notes (motivation, licensing, caveats).
+- `scripts/run_all.sh` — one-shot pipeline (stats, Heaps, BPE, vocab, spell eval, segmentation, summary).
 
 ## Setup
 ```
@@ -22,6 +27,8 @@ pip install -r requirements.txt
 Dependencies: requests, tqdm, mwparserfromhell, regex, numpy, pandas, matplotlib.
 
 Use Python 3.10+ for best compatibility.
+
+After setup, ensure `data/raw/corpus.csv` exists (see collection step) before running analytics.
 
 ## 1) Collect a Corpus
 Fetch and clean Azerbaijani Wikipedia pages into a CSV with one row per document.
@@ -71,6 +78,12 @@ Outputs:
 - `bpe_token_freq.csv` — BPE token counts.
 - `bpe_summary.json` — run metadata plus example word -> BPE segmentations.
 
+## Sentence Segmentation
+```
+python -m src.sentence_segment --corpus_path data/raw/corpus.csv --limit 500 --out outputs/sentences.txt
+```
+Handles abbreviations, decimals, initials, quotes, and lowercase continuations after periods (e.g., “kv. verst” remains unsplit). Regression tests cover key edge cases.
+
 ## Tokenization Notes
 - Uses `regex` with Unicode properties; keeps Azerbaijani letters, apostrophes, hyphens, and numbers (including decimals).
 - Light Wikipedia cleanup (`strip_wiki_garbage`) removes category/navigation noise and normalizes punctuation.
@@ -98,6 +111,20 @@ python -m src.heaps
 python -m src.task3_bpe
 ```
 
+## One-shot full pipeline
+Runs stats, Heaps, BPE, vocab build, synthetic spell benchmark, weighted spell eval, sentence segmentation, rare-word spell suggestions, and writes a textual summary for your report.
+```
+bash scripts/run_all.sh
+```
+Key outputs:
+- Plots: `outputs/plots/zipf.png`, `outputs/plots/heaps.png`
+- Stats: `outputs/stats/summary.json`, `outputs/stats/heaps_params.json`, `outputs/stats/vocab_summary.json`
+- BPE: `outputs/bpe/merges.txt`, `outputs/bpe/bpe_summary.json`
+- Vocab: `data/processed/vocab.txt`
+- Spell: `outputs/spellcheck/spell_eval.json`, `outputs/spellcheck/sample_predictions.csv`, `outputs/spellcheck/confusion.json`, `outputs/spellcheck/confusion_heatmap.png`, `outputs/spellcheck/suggestions.txt`
+- Sentences: `outputs/sentences.txt`
+- Report-ready summary: `outputs/run_summary.txt`
+
 ## Spellcheck example
 Provide a wordlist (one word per line) and write suggestions to `outputs/spellcheck`:
 ```
@@ -117,3 +144,13 @@ python -m src.build_vocab \
   --vocab_path data/processed/vocab.txt \
   --summary_path outputs/stats/vocab_summary.json
 ```
+
+## Spellcheck evaluation (weighted edit distance)
+Create synthetic errors, learn confusion weights, evaluate, and plot:
+```
+python -m src.make_spell_test --samples 1000
+python -m src.confusion --pairs_csv data/processed/spell_test.csv --out_confusion outputs/spellcheck/confusion.json
+python -m src.eval_spellcheck --test_csv data/processed/spell_test.csv --confusion outputs/spellcheck/confusion.json
+python -m src.plot_confusion --confusion outputs/spellcheck/confusion.json --out outputs/spellcheck/confusion_heatmap.png
+```
+Metrics: see `outputs/spellcheck/spell_eval.json`; heatmap at `outputs/spellcheck/confusion_heatmap.png`.

@@ -113,7 +113,7 @@ f(r) \propto \frac{1}{r^{s}}
 
 \column{0.48\textwidth}
 \centering
-\includegraphics[width=\linewidth]{../outputs/plots/zipf.png}
+\includegraphics[width=\linewidth]{zipf.png}
 \end{columns}
 \end{frame}
 
@@ -143,7 +143,7 @@ k = 4.57,\qquad \beta = 0.750
 
 \column{0.45\textwidth}
 \centering
-\includegraphics[width=\linewidth]{../outputs/plots/heaps.png}
+\includegraphics[width=\linewidth]{heaps.png}
 \end{columns}
 \end{frame}
 
@@ -234,13 +234,17 @@ D(i-1,j-1)+[x_i \neq y_j] & \text{substitute}
 
 %------------------------------------------------
 \begin{frame}{Weighted Edit Distance (From Confusions)}
+\small
+
 We replace uniform substitution costs with learned costs from character confusions.
 
 \[
-\text{cost}(a\rightarrow b) = \frac{1}{\epsilon + P(b|a)}
+\text{cost}(a \rightarrow b) = \frac{1}{\epsilon + P(b|a)}
 \]
 
-Weighted recurrence:
+\medskip
+\textbf{Weighted recurrence:}
+
 \[
 D(i,j)=\min
 \begin{cases}
@@ -250,18 +254,27 @@ D(i-1,j-1)+w_{\text{sub}}(x_i,y_j)
 \end{cases}
 \]
 
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Weighted Edit Distance (Interpretation)}
+\small
 \begin{columns}
-\column{0.55\textwidth}
+\column{0.52\textwidth}
 \begin{itemize}
   \item Confusions learned from synthetic misspellings
   \item Common substitutions get lower penalty
+  \item Diacritic and keyboard-adjacent errors favored
   \item Improves ranking of realistic corrections
 \end{itemize}
-\column{0.45\textwidth}
+
+\column{0.48\textwidth}
 \centering
-\includegraphics[width=\linewidth]{../outputs/spellcheck/confusion_heatmap.png}
+\includegraphics[width=\linewidth]{confusion_heatmap.png}
 \end{columns}
 \end{frame}
+
+
 
 %------------------------------------------------
 \begin{frame}{Evaluation Metrics}
