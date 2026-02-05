@@ -18,6 +18,7 @@ End-to-end mini-pipeline for collecting, cleaning, and exploring an Azerbaijani 
 - `src/spellcheck.py` — Levenshtein/weighted spell checker CLI.
 - `src/make_spell_test.py`, `src/confusion.py`, `src/eval_spellcheck.py`, `src/plot_confusion.py` — synthetic spell benchmark, confusion weights, evaluation, and heatmap.
 - `src/build_vocab.py` — filtered vocabulary builder.
+- `src/serve_spellcheck.py`, `src/spell_ui.html` — lightweight Flask server + web UI for interactive suggestions.
 - `data/` — input data; expects `data/raw/corpus.csv` created by the collector.
 - `outputs/` — auto-created results (`stats/`, `plots/`, `bpe/`, `spellcheck/`, etc.).
 - `notebooks/Main.ipynb` — scratchpad/EDA; mirrors the script workflow.
@@ -160,3 +161,10 @@ python -m src.eval_spellcheck --test_csv data/processed/spell_test.csv --confusi
 python -m src.plot_confusion --confusion outputs/spellcheck/confusion.json --out outputs/spellcheck/confusion_heatmap.png
 ```
 Metrics: see `outputs/spellcheck/spell_eval.json`; heatmap at `outputs/spellcheck/confusion_heatmap.png`.
+
+## Simple web UI for spellcheck
+Start the Flask server and open the local page:
+```
+python -m src.serve_spellcheck  # defaults to http://127.0.0.1:5000
+```
+Then visit `http://127.0.0.1:5000/` and enter a word to see ranked suggestions (uses corpus vocab; weighted edits if `outputs/spellcheck/confusion.json` exists).

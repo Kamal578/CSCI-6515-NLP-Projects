@@ -6,4 +6,5 @@ numpy
 pandas
 matplotlib
 langid
+flask
 langid

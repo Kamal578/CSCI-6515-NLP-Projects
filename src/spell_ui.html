@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Azerbaijani Spellcheck</title>
+  <style>
+    body { font-family: sans-serif; margin: 24px; max-width: 720px; }
+    h1 { margin-bottom: 0.25em; }
+    .meta { color: #555; margin-bottom: 1em; }
+    label { font-weight: 600; display: block; margin-top: 1em; }
+    input[type="text"] { width: 100%; padding: 10px; font-size: 1.1em; }
+    button { margin-top: 12px; padding: 10px 16px; font-size: 1em; cursor: pointer; }
+    #results { margin-top: 1.5em; }
+    .cand { padding: 6px 0; border-bottom: 1px solid #eee; }
+    .cand strong { font-size: 1.05em; }
+    .small { color: #666; font-size: 0.9em; }
+  </style>
+</head>
+<body>
+  <h1>Azerbaijani Spellcheck Demo</h1>
+  <div class="meta">Backed by corpus vocab + weighted edit distance (if confusion weights exist).</div>
+
+  <label for="word">Enter a word</label>
+  <input type="text" id="word" placeholder="e.g., komputer" />
+  <button id="checkBtn">Check spelling</button>
+
+  <div id="results"></div>
+
+  <script>
+    async function suggest(word) {
+      const res = await fetch('/api/suggest', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({word})
+      });
+      if (!res.ok) {
+        const t = await res.text();
+        throw new Error(t);
+      }
+      return res.json();
+    }
+
+    const input = document.getElementById('word');
+    const btn = document.getElementById('checkBtn');
+    const results = document.getElementById('results');
+
+    btn.addEventListener('click', async () => {
+      const word = input.value.trim();
+      if (!word) return;
+      results.textContent = 'Loading...';
+      try {
+        const data = await suggest(word);
+        if (!data.candidates.length) {
+          results.innerHTML = `<p>No suggestions found (vocab size: ${data.vocab_size}).</p>`;
+          return;
+        }
+        results.innerHTML = `
+          <p class="small">Vocab: ${data.vocab_size} | Weighted: ${data.used_confusion}</p>
+          ${data.candidates.map(c => `<div class="cand"><strong>${c.token}</strong> <span class="small">freq=${c.freq}</span></div>`).join('')}
+        `;
+      } catch (err) {
+        results.textContent = 'Error: ' + err.message;
+      }
+    });
+
+    input.addEventListener('keyup', (e) => { if (e.key === 'Enter') btn.click(); });
+  </script>
+</body>
+</html>
