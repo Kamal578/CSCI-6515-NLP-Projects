@@ -32,6 +32,7 @@
   \titlepage
 \end{frame}
 
+
 %------------------------------------------------
 \begin{frame}{Motivation}
 \begin{itemize}
@@ -202,6 +203,20 @@ p \in \{.,!,?\}
 \end{frame}
 
 %------------------------------------------------
+\begin{frame}{Segmentation Challenges and Heuristics}
+\small
+\begin{itemize}
+  \item Abbreviations: block splits after \texttt{dr., prof., mr., etc.}
+  \item Decimals / numbers: no split inside \texttt{3.14}, \texttt{50,5}
+  \item Initials / acronyms: no split inside \texttt{S.Rustamov}, \texttt{A.M.}
+  \item Quotes: closing quote + space + lowercase $\Rightarrow$ no split; + uppercase $\Rightarrow$ split
+  \item Lowercase continuation after period: keep \texttt{kv. verst} unsplit
+\end{itemize}
+\vspace{0.2cm}
+Lightweight rules reduce false boundaries in encyclopedic text while remaining fast and interpretable.
+\end{frame}
+
+%------------------------------------------------
 \begin{frame}{Quotation-Aware and Context-Sensitive Splitting}
 
 Special handling is applied to quoted text and citations.
@@ -228,6 +243,17 @@ Special handling is applied to quoted text and citations.
   \item Azerbaijani quotation styles (", « », etc.)
 \end{itemize}
 
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Segmentation Evaluation}
+\small
+\begin{itemize}
+  \item Metrics: Precision, Recall, F1 (sklearn) and BDER $= (FP+FN)/|gold|$
+  \item Inputs: gold + predicted boundary indices (JSON or newline list)
+  \item Tooling: \texttt{python -m src.evaluate\_segmentation ...}; wrapper \texttt{bash scripts/eval\_sentseg.sh <gold\_sentences> <limit>}
+  \item Status: pipeline ready; awaiting manually curated gold set (auto gold used only for scaffolding)
+\end{itemize}
 \end{frame}
 
 %------------------------------------------------
@@ -301,6 +327,7 @@ D(i-1,j-1)+w_{\text{sub}}(x_i,y_j)
   \item Common substitutions get lower penalty
   \item Diacritic and keyboard-adjacent errors favored
   \item Improves ranking of realistic corrections
+\item Candidate pruning: length filter ($|\,|w|-|c|\,|\leq$ max\_dist) before scoring; ranking by (distance, freq)
 \end{itemize}
 
 \column{0.48\textwidth}
@@ -332,6 +359,18 @@ Results on 1000 synthetic misspellings:
 \end{frame}
 
 %------------------------------------------------
+\begin{frame}{Spellcheck Pipeline Recap}
+\small
+\begin{itemize}
+  \item Vocab filtering: Azerbaijani alphabet only, min\_freq (2), min\_len (3)
+  \item Candidate pruning: length difference $\leq$ max\_dist (2) before distance
+  \item Distance: Levenshtein; weighted edits if confusion weights provided
+  \item Ranking: (distance asc, frequency desc), top-5 suggestions
+  \item Rare-token scan: report suggestions for 200 rarest tokens to spot likely typos
+\end{itemize}
+\end{frame}
+
+%------------------------------------------------
 \begin{frame}{Key Outputs (Reproducibility)}
 \begin{itemize}
   \item Run everything:
@@ -345,6 +384,10 @@ Results on 1000 synthetic misspellings:
   \item BPE:
   \begin{itemize}
     \item \texttt{outputs/bpe/merges.txt}, \texttt{bpe\_summary.json}
+  \end{itemize}
+  \item Sentence segmentation:
+  \begin{itemize}
+    \item \texttt{outputs/sentences.txt}, optional eval \texttt{outputs/sentseg\_eval.json}
   \end{itemize}
   \item Spellcheck:
   \begin{itemize}

@@ -7,4 +7,5 @@ pandas
 matplotlib
 langid
 flask
+scikit-learn
 langid

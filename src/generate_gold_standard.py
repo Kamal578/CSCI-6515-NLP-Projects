@@ -7,7 +7,7 @@ from src.sentence_segment import sentence_segment
 def generate_gold_standard(
     corpus_path: str = "data/raw/corpus.csv",
     output_path: str = "data/processed/sent_gold.txt",
-    num_samples: int = 100,
+    num_samples: int = 100, # Number of random texts to sample from the corpus for gold standard generation
     seed: int = 42,
 ):
     random.seed(seed)

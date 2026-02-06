@@ -31,7 +31,7 @@ python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\\Scripts\\activate
 pip install -r requirements.txt
 ```
-Dependencies: requests, tqdm, mwparserfromhell, regex, numpy, pandas, matplotlib.
+Dependencies: requests, tqdm, mwparserfromhell, regex, numpy, pandas, matplotlib, scikit-learn, flask.
 
 Use Python 3.10+ for best compatibility.
 
@@ -103,6 +103,13 @@ Handles abbreviations, decimals, initials, quotes, and lowercase continuations a
 - Source text: Azerbaijani Wikipedia; content is CC BY-SA. Respect attribution and ShareAlike when redistributing derived corpora.
 - See `DATASHEET.md` for open issues (coverage, biases, timestamps, intended use).
 
+## Dataset snapshot (latest run)
+- Documents: 623
+- Tokens: 238,286
+- Types: 48,151
+- Heaps' law: k=4.57, β=0.750 (`outputs/stats/heaps_params.json`)
+- Spellcheck eval (synthetic 1k): Acc@1=0.637, Acc@5=0.801 (`outputs/spellcheck/spell_eval.json`)
+
 ## Troubleshooting
 - Missing corpus error -> run the collector to create `data/raw/corpus.csv`.
 - Slow downloads -> lower `--limit` / `--random` or increase `--sleep` for API politeness.
@@ -131,6 +138,7 @@ Key outputs:
 - Spell: `outputs/spellcheck/spell_eval.json`, `outputs/spellcheck/sample_predictions.csv`, `outputs/spellcheck/confusion.json`, `outputs/spellcheck/confusion_heatmap.png`, `outputs/spellcheck/suggestions.txt`
 - Sentences: `outputs/sentences.txt`
 - Report-ready summary: `outputs/run_summary.txt`
+ - Segmentation eval (if gold indices provided separately): `outputs/sentseg_eval.json`
 
 ## Spellcheck example
 Provide a wordlist (one word per line) and write suggestions to `outputs/spellcheck`:
@@ -162,9 +170,31 @@ python -m src.plot_confusion --confusion outputs/spellcheck/confusion.json --out
 ```
 Metrics: see `outputs/spellcheck/spell_eval.json`; heatmap at `outputs/spellcheck/confusion_heatmap.png`.
 
+Spellcheck internals (what happens):
+- Vocab is filtered to Azerbaijani alphabet, min frequency (default 2) and length (default 3) to drop noise.
+- Candidates are pruned by length difference (<= `--max_dist`, default 2) before distance scoring.
+- Distance = uniform Levenshtein, or weighted edits if `--confusion` is provided (common substitutions get lower cost).
+- Ranking = (distance asc, frequency desc); top-k (default 5) returned.
+- `scripts/run_all.sh` also scans rare vocab (200 lowest-frequency tokens) to surface likely misspellings automatically.
+
 ## Simple web UI for spellcheck
 Start the Flask server and open the local page:
 ```
 python -m src.serve_spellcheck  # defaults to http://127.0.0.1:5000
 ```
 Then visit `http://127.0.0.1:5000/` and enter a word to see ranked suggestions (uses corpus vocab; weighted edits if `outputs/spellcheck/confusion.json` exists).
+
+## Sentence segmentation evaluation
+Given gold boundary indices and predicted indices (JSON array or newline-separated ints):
+```
+python -m src.evaluate_segmentation \
+  --gold data/processed/sent_gold_indices.txt \
+  --pred outputs/sentences_pred_indices.txt \
+  --out outputs/sentseg_eval.json
+```
+Reports Precision/Recall/F1 and Boundary Detection Error Rate (BDER), and writes metrics to JSON.
+Helper end-to-end wrapper (builds subset, segments, converts to indices, evaluates):
+```
+bash scripts/eval_sentseg.sh data/processed/sent_gold.txt 50
+```
+Gold preparation: manually segment a small subset (e.g., first 50 docs) into one sentence per line in `data/processed/sent_gold.txt`; the helper script will derive indices and evaluate.

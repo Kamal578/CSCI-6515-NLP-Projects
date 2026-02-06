@@ -82,11 +82,22 @@ We applied BPE to segment words into subword units, which improves handling of r
 \end{itemize}
 
 \subsection{Sentence Segmentation}
-We implemented a rule-based sentence segmenter that accounts for abbreviations, decimal numbers, initials, quote boundaries, and lowercase continuations after periods. The segmenter was tested on the first 500 documents, extracting 11,479 sentences.
+We implemented a rule-based sentence segmenter (\texttt{src/sentence\_segment.py}) that applies contextual heuristics to punctuation-based splitting. It was run on the first 500 documents, producing 11,479 sentences (\texttt{outputs/sentences.txt}).
 \begin{itemize}
-    \item Key edge cases: abbreviations (e.g., "Dr."), decimals (e.g., "3.14"), and initials (e.g., "S.Rustamov").
-    \item Handling punctuation marks, especially when they appear inside quotes or are followed by a lowercase letter, posed a challenge. For instance, cases like “kv. verst” (continuation after a period) were deliberately kept unsplit.
-    \item Output: \texttt{outputs/sentences.txt}.
+    \item Blocks false splits on in-token punctuation (decimals like ``3.14'', initials like ``S.Rustamov'') and known abbreviations.
+    \item Quote-aware: closing quote + space + lowercase $\Rightarrow$ no split; closing quote + space + uppercase $\Rightarrow$ split.
+    \item Handles lowercase continuations after a period (e.g., ``kv. verst'') to prevent spurious boundaries.
+    \item Regression tests cover abbreviations (\texttt{prof.}), decimals, initials, and lowercase continuations.
+\end{itemize}
+
+\subsubsection*{Segmentation Evaluation Pipeline}
+\begin{itemize}
+    \item Tooling: \texttt{src/evaluate\_segmentation.py} (Precision/Recall/F1 via \texttt{sklearn} + BDER), helper wrapper \texttt{scripts/eval\_sentseg.sh}.
+    \item Inputs: gold and predicted boundary indices (JSON array or newline-separated). BDER is defined as $(FP+FN)/|gold|$.
+    \item Command example: \texttt{python -m src.evaluate\_segmentation --gold <gold\_idx> --pred <pred\_idx> --out outputs/sentseg\_eval.json}.
+    \item If gold sentences exist (one per line), run \texttt{bash scripts/eval\_sentseg.sh data/processed/sent\_gold.txt 50} to extract subset, segment, convert to indices, and score.
+    \item Status: pipeline ready; manually curated gold boundaries still needed (auto-generated \texttt{sent\_gold.txt} is a placeholder).
+    \item Reported metrics (once gold is available) are stored in \texttt{outputs/sentseg\_eval.json}; fields include Precision, Recall, F1, and BDER.
 \end{itemize}
 
 \subsection{Spell Checking}
@@ -135,7 +146,17 @@ These enhancements substantially reduce false positives while preserving true se
 
 
 \subsection{Spell Checking}
-The Levenshtein-based spell checker, enhanced with weighted edit distance, achieved an accuracy of Accuracy@1 = \spellaccone\ and Accuracy@5 = \spellaccfive. A confusion matrix of top substitutions is visualized in Figure~\ref{fig:confusion}, highlighting common character substitutions.
+The spell checker combines corpus-derived vocabulary filtering, length-aware candidate pruning, and (optional) weighted edit distance. Accuracy on 1,000 synthetic misspellings: Accuracy@1 = \spellaccone, Accuracy@5 = \spellaccfive. A confusion matrix of top substitutions is visualized in Figure~\ref{fig:confusion}, highlighting common character substitutions.
+
+\paragraph{Candidate generation and scoring}
+\begin{itemize}
+    \item Vocab: filtered to Azerbaijani alphabet, min\_freq (default 2) and min\_len (default 3) to suppress noise.
+    \item Pruning: length filter $|\,|w|-|c|\,|\leq$ max\_dist (default 2) before distance computation.
+    \item Distance: uniform Levenshtein (\texttt{src/levenshtein.py}) or weighted edit distance (\texttt{src/weighted\_levenshtein.py}) if confusion weights are supplied.
+    \item Ranking: sort by (distance asc, frequency desc), return top-$k$ (default 5).
+    \item Confusion weights: learned from synthetic misspellings via \texttt{src/confusion.py}; common substitutions (e.g., missing diacritics) incur lower cost, improving ranking of realistic typos.
+    \item Rare-word suggestions: \texttt{scripts/run\_all.sh} builds a list of 200 rare tokens and runs suggestions to spot likely errors automatically.
+\end{itemize}
 
 \section{Reproducibility}
 The full pipeline can be run with the following command:
