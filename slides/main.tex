@@ -50,9 +50,9 @@
   \item Cleaned corpus stored as CSV: \texttt{data/raw/corpus.csv}
   \item Final size:
   \begin{itemize}
-    \item 623 documents
-    \item 238,286 tokens
-    \item 48,151 unique token types
+    \item 31{,}842 documents
+    \item 11{,}905{,}937 tokens
+    \item 586{,}674 unique token types
   \end{itemize}
 \end{itemize}
 \end{frame}
@@ -135,7 +135,7 @@ V(N) = kN^{\beta}
 \end{itemize}
 
 \[
-k = 4.57,\qquad \beta = 0.750
+k = 17.89,\qquad \beta = 0.640
 \]
 
 \begin{itemize}
@@ -160,7 +160,7 @@ xy \rightarrow \langle xy \rangle
 \]
 
 \begin{itemize}
-  \item Merges: 5000 \quad $\rightarrow$ \quad Subword vocab: 5239
+  \item Merges: 5000 \quad $\rightarrow$ \quad Subword vocab: 6946
   \item Reduces OOV rate and helps with morphology
 \end{itemize}
 
@@ -294,6 +294,63 @@ D(i-1,j-1)+[x_i \neq y_j] & \text{substitute}
 \end{frame}
 
 %------------------------------------------------
+\begin{frame}{Spell Checking: Candidate Generation}
+
+Before querying the model, we generate candidates by focusing on common letter substitutions in Azerbaijani:
+\begin{itemize}
+  \item Problematic letters: \{ a, o, u, c, s, ş, ç, e, ğ \}
+  \item Substituting these letters gives multiple possible candidates
+  \item For each candidate, we retrieve 5 suggestions from the model
+\end{itemize}
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Spell Checking: Ranking and Pruning Candidates}
+
+After generating multiple candidates:
+\begin{itemize}
+  \item Concatenate all candidate lists
+  \item Rank candidates by Levenshtein distance and frequency in the dataset
+  \item Prune irrelevant candidates based on character length
+\end{itemize}
+
+\textbf{Final suggestion:}
+\begin{itemize}
+  \item Top-5 words with shortest distance and highest frequency
+\end{itemize}
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Spell Checking: Impact on Accuracy}
+
+\begin{itemize}
+  \item Precision and recall greatly improved due to:
+  \begin{itemize}
+    \item Candidate generation via substitution
+    \item Higher quality model suggestions
+  \end{itemize}
+  \item Top-5 suggestions highly reliable, reducing false positives
+\end{itemize}
+\end{frame}
+
+%------------------------------------------------
+\begin{frame}{Spell Checker: Final Recap}
+
+\textbf{Candidate Generation:}
+\begin{itemize}
+  \item Letter substitution for common spelling errors
+  \item Generate candidates by substituting frequent miswritten characters
+\end{itemize}
+
+\textbf{Ranking & Final Suggestions:}
+\begin{itemize}
+  \item Top-5 ranked suggestions from model, based on Levenshtein distance and frequency
+\end{itemize}
+
+\end{frame}
+
+
+%------------------------------------------------
 \begin{frame}{Weighted Edit Distance (From Confusions)}
 \small
 
@@ -349,7 +406,7 @@ We evaluate spellchecker ranking using Accuracy@k.
 
 Results on 1000 synthetic misspellings:
 \[
-\text{Acc@1}=0.637,\qquad \text{Acc@5}=0.801
+\text{Acc@1}=0.489,\qquad \text{Acc@5}=0.726
 \]
 
 \begin{itemize}
@@ -399,11 +456,11 @@ Results on 1000 synthetic misspellings:
 %------------------------------------------------
 \begin{frame}{Conclusion}
 \begin{itemize}
-  \item Built a clean Azerbaijani Wikipedia corpus (623 docs)
+  \item Built a clean Azerbaijani Wikipedia corpus (31{,}842 docs)
   \item Verified Zipf-like distribution and fitted Heaps' law
   \item Trained BPE subword model for robust tokenization
   \item Implemented rule-based sentence segmentation with edge-case handling
-  \item Developed spellchecker with weighted edit distance; Acc@5 = 0.801
+  \item Developed spellchecker with weighted edit distance; Acc@5 = 0.726
 \end{itemize}
 \end{frame}
 

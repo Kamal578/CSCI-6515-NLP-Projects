@@ -11,15 +11,15 @@
 % ------------------------------------------------------------------
 % Quick-edit macros (fill with actual values after running pipeline)
 % ------------------------------------------------------------------
-\newcommand{\numdocs}{623}
-\newcommand{\numtokens}{238{,}286}
-\newcommand{\numtypes}{48{,}151}
-\newcommand{\heapsk}{4.57}
-\newcommand{\heapsbeta}{0.750}
-\newcommand{\bpetypes}{5{,}239}
+\newcommand{\numdocs}{31{,}842}
+\newcommand{\numtokens}{11{,}905{,}937}
+\newcommand{\numtypes}{586{,}674}
+\newcommand{\heapsk}{17.89}
+\newcommand{\heapsbeta}{0.640}
+\newcommand{\bpetypes}{6{,}946}
 \newcommand{\bpemerges}{5{,}000} % default in scripts
-\newcommand{\spellaccone}{0.637}
-\newcommand{\spellaccfive}{0.801}
+\newcommand{\spellaccone}{0.489}
+\newcommand{\spellaccfive}{0.726}
 
 \title{Azerbaijani Wikipedia Corpus: Tokenization, Heaps' Law, BPE, Sentence Segmentation, and Spell Checking}
 
@@ -82,13 +82,42 @@ We applied BPE to segment words into subword units, which improves handling of r
 \end{itemize}
 
 \subsection{Sentence Segmentation}
-We implemented a rule-based sentence segmenter (\texttt{src/sentence\_segment.py}) that applies contextual heuristics to punctuation-based splitting. It was run on the first 500 documents, producing 11,479 sentences (\texttt{outputs/sentences.txt}).
+We implemented an enhanced rule-based approach to sentence segmentation. In this approach, sentence boundaries are detected using punctuation marks and contextual constraints. Specifically, we use the following boundary candidates:
+\[
+p \in \{.,!,?\}
+\]
+
+\textbf{We do NOT split when:}
+\[
+\text{Non-space on both sides of } p \Rightarrow \text{no split}
+\]
+\[
+\text{Examples: } \texttt{3.14},\ \texttt{50.5},\ \texttt{S.Rustamov}
+\]
+
+\[
+\text{Uppercase initial + period} \Rightarrow \text{no split}
+\]
+\[
+\text{Example: } \texttt{A. Məlikli}
+\]
+
+\textbf{We split when:}
+\[
+\text{Closing quote + space + Uppercase letter} \Rightarrow \text{boundary}
+\]
+
+The enhanced segmentation rules address edge cases, including:
 \begin{itemize}
-    \item Blocks false splits on in-token punctuation (decimals like ``3.14'', initials like ``S.Rustamov'') and known abbreviations.
-    \item Quote-aware: closing quote + space + lowercase $\Rightarrow$ no split; closing quote + space + uppercase $\Rightarrow$ split.
-    \item Handles lowercase continuations after a period (e.g., ``kv. verst'') to prevent spurious boundaries.
-    \item Regression tests cover abbreviations (\texttt{prof.}), decimals, initials, and lowercase continuations.
+    \item Abbreviations (e.g., \texttt{prof.}, \texttt{Dr.})
+    \item Decimal numbers (e.g., \texttt{3.14}, \texttt{50.5})
+    \item Initials (e.g., \texttt{S.Rustamov}, \texttt{A.M.})
+    \item Quotes and guillemets: Closing quote followed by space and uppercase triggers sentence boundary
+    \item Lowercase continuation after periods (e.g., \texttt{kv. verst}) is preserved to avoid false splits
 \end{itemize}
+
+These heuristics significantly reduce false sentence boundaries, especially in documents with numbers, personal names, and quotes.
+
 
 \subsubsection*{Segmentation Evaluation Pipeline}
 \begin{itemize}
@@ -100,13 +129,31 @@ We implemented a rule-based sentence segmenter (\texttt{src/sentence\_segment.py
     \item Reported metrics (once gold is available) are stored in \texttt{outputs/sentseg\_eval.json}; fields include Precision, Recall, F1, and BDER.
 \end{itemize}
 
-\subsection{Spell Checking}
-The spell checker uses a Levenshtein-based distance measure, enhanced with a weighted edit distance to account for common character substitutions. We evaluated the system with a synthetic test set of 1,000 misspelled words.
+\subsection{ Checking}
+We developed an advanced spell-checking system that uses a combination of Levenshtein distance and weighted edit distance to improve accuracy. 
+\\\\
+The code scans the vocabulary and computes Levenshtein (or weighted) distance to the input word, keeping tokens within a max distance. It sorts candidates by distance, then frequency, and returns the top‑k suggestions with their counts. Also, length-based pruning is applied to filter out irrelevant candidates based on character length differences.
+\\\\
+Moreover, the spelling checker employs a sophisticated candidate generation mechanism to improve accuracy in handling common mistyped letters in Azerbaijani. Before querying the model with an input word, we identify problematic letters in the word that are most likely to be substituted with their Azerbaijani counterparts. 
+\\\\
+\textbf{Candidate Generation:}
 \begin{itemize}
-    \item Vocab generated from the corpus and filtered by frequency and length; the edit distance cutoff is set to 2.
-    \item Evaluation results: Accuracy@1 = \spellaccone, Accuracy@5 = \spellaccfive.
-    \item The confusion matrix and weights are visualized in \texttt{outputs/spellcheck/confusion\_heatmap.png}. The heatmap helps identify the most common letter substitutions that the spellchecker struggles with.
+    \item We identify problematic letters in the input word (e.g., \{a, o, u, c, s, ch, sh, e, g\}), which are likely to be substituted with their Azerbaijani counterparts.
+    \item A set of candidates is generated by substituting these characters in the input word in different combinations.
+    \item For each candidate, 5 suggestions are retrieved from the model.
+    \item These lists of suggestions are concatenated to form a combined candidate pool.
 \end{itemize}
+
+
+\indent\indent \textbf{Candidate Ranking:}
+\begin{itemize}
+    \item The lists of suggestions for each candidate are concatenated and sorted by the Levenshtein distance to \textit{any} of the generated candidates and their frequency.
+    \item A list of the top 5 best suggestions is created out of the whole concatenated list and outputted as a result.
+\end{itemize}
+
+This approach significantly boosts the precision of the spell checker, improving success rates for words with common typing mistakes. By leveraging both character-level and frequency-based filtering, the model is able to produce more accurate spelling corrections, even for subtle or frequent letter swaps in the Azerbaijani language.
+
+
 
 \section{Experiments and Results}
 \subsection{Collection and Cleaning}
@@ -146,17 +193,8 @@ These enhancements substantially reduce false positives while preserving true se
 
 
 \subsection{Spell Checking}
-The spell checker combines corpus-derived vocabulary filtering, length-aware candidate pruning, and (optional) weighted edit distance. Accuracy on 1,000 synthetic misspellings: Accuracy@1 = \spellaccone, Accuracy@5 = \spellaccfive. A confusion matrix of top substitutions is visualized in Figure~\ref{fig:confusion}, highlighting common character substitutions.
+The Levenshtein-based spell checker, enhanced with weighted edit distance, was evaluated on a synthetic test set of 1,000 misspelled words and achieved an accuracy of Accuracy@1 = \spellaccone\ and Accuracy@5 = \spellaccfive. A confusion matrix of top substitutions is visualized in Figure~\ref{fig:confusion}, highlighting common character substitutions.
 
-\paragraph{Candidate generation and scoring}
-\begin{itemize}
-    \item Vocab: filtered to Azerbaijani alphabet, min\_freq (default 2) and min\_len (default 3) to suppress noise.
-    \item Pruning: length filter $|\,|w|-|c|\,|\leq$ max\_dist (default 2) before distance computation.
-    \item Distance: uniform Levenshtein (\texttt{src/levenshtein.py}) or weighted edit distance (\texttt{src/weighted\_levenshtein.py}) if confusion weights are supplied.
-    \item Ranking: sort by (distance asc, frequency desc), return top-$k$ (default 5).
-    \item Confusion weights: learned from synthetic misspellings via \texttt{src/confusion.py}; common substitutions (e.g., missing diacritics) incur lower cost, improving ranking of realistic typos.
-    \item Rare-word suggestions: \texttt{scripts/run\_all.sh} builds a list of 200 rare tokens and runs suggestions to spot likely errors automatically.
-\end{itemize}
 
 \section{Reproducibility}
 The full pipeline can be run with the following command:
