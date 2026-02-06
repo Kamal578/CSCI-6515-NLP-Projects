@@ -96,9 +96,6 @@ Handles abbreviations, decimals, initials, quotes, and lowercase continuations a
 - Light Wikipedia cleanup (`strip_wiki_garbage`) removes category/navigation noise and normalizes punctuation.
 - Toggle lowercasing via `--lowercase` where available in scripts.
 
-## Notebook
-`notebooks/Main.ipynb` mirrors the scripts with richer explanations and plots. Run after installing the requirements (Jupyter is not auto-installed—use `pip install notebook` if needed).
-
 ## Data and Licensing
 - Source text: Azerbaijani Wikipedia; content is CC BY-SA. Respect attribution and ShareAlike when redistributing derived corpora.
 - See `DATASHEET.md` for open issues (coverage, biases, timestamps, intended use).
