@@ -592,7 +592,7 @@
     // Typing assistance tab (real-time)
     function scheduleTypingAssist() {
       clearTimeout(state.typingTimer);
-      state.typingTimer = setTimeout(runTypingAssist, 180);
+      state.typingTimer = setTimeout(runTypingAssist, 380);
     }
 
     async function runTypingAssist() {
@@ -618,6 +618,7 @@
           out.innerHTML = `
             <div class="typing-mode">Mode: Spellcheck suggestions (current token is incomplete)</div>
             <div class="muted" style="margin-bottom:8px;">Current token: <span class="mono">${esc(data.current_token || "")}</span> | weighted confusion: ${data.used_confusion ? "yes" : "no"}</div>
+            ${data.message ? `<div class="muted" style="margin-bottom:8px;">${esc(data.message)}</div>` : ""}
             ${renderSpellCandidates(data.spell_suggestions || [])}
           `;
           return;
@@ -645,12 +646,12 @@
       try {
         const res = await fetch("/api/ui_status");
         const data = await res.json();
-        if (data.spell_vocab_ready) {
+        if (data.corpus_exists) {
           dot.className = "dot ok";
-          text.textContent = `Backend ready • spell vocab=${data.spell_vocab_size} • n-gram cache loaded=${data.ngram_index_cached ? "yes" : "no"}`;
+          text.textContent = `Backend ready • corpus found • spell vocab cached=${data.spell_vocab_cached ? "yes" : "no"} • n-gram cache loaded=${data.ngram_index_cached ? "yes" : "no"}`;
         } else {
           dot.className = "dot bad";
-          text.textContent = `Backend reachable but corpus/vocab load failed: ${data.spell_error || "unknown error"}`;
+          text.textContent = `Backend reachable but corpus file was not found. Check data/raw/corpus.csv or tab corpus paths.`;
         }
       } catch (err) {
         dot.className = "dot bad";

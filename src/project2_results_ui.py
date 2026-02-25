@@ -92,7 +92,8 @@ def _extract_current_partial_word(text: str) -> str:
 
 
 def _ngram_suggestions_payload(text: str, corpus_path: str, text_column: str, max_docs_ngram: int | None = None) -> dict:
-    idx = get_ngram_index(corpus_path=corpus_path, text_column=text_column, max_docs=max_docs_ngram)
+    # Use a consistent positional call style so lru_cache keys are reused.
+    idx = get_ngram_index(corpus_path, text_column, max_docs_ngram)
     toks = _context_tokens_for_text(text)
 
     last1 = toks[-1] if len(toks) >= 1 else None
@@ -131,19 +132,48 @@ def _ngram_suggestions_payload(text: str, corpus_path: str, text_column: str, ma
     }
 
 
-def _spell_suggestions_payload(word: str, corpus_path: str, top_k: int = 3) -> dict:
+@lru_cache(maxsize=512)
+def _cached_spell_candidates(
+    word: str,
+    corpus_path: str,
+    top_k: int,
+    max_dist: int,
+    max_variant_edits: int,
+    max_variant_candidates: int,
+) -> tuple[tuple[str, int], ...]:
     vocab = get_vocab(corpus_path, 2, 3, 0.6)
     weights = load_weights("outputs/spellcheck/confusion.json")
     cands, _ = expand_suggest(
         word=word,
         vocab=vocab,
-        max_dist=2,
+        max_dist=max_dist,
         top_k=top_k,
         weights=weights,
-        max_variant_edits=3,
-        max_variant_candidates=80,
+        max_variant_edits=max_variant_edits,
+        max_variant_candidates=max_variant_candidates,
         debug=False,
     )
+    return tuple((str(w), int(freq)) for w, freq in cands)
+
+
+def _spell_suggestions_payload(
+    word: str,
+    corpus_path: str,
+    top_k: int = 3,
+    max_dist: int = 2,
+    max_variant_edits: int = 3,
+    max_variant_candidates: int = 80,
+) -> dict:
+    cands = _cached_spell_candidates(
+        word=word.lower(),
+        corpus_path=corpus_path,
+        top_k=top_k,
+        max_dist=max_dist,
+        max_variant_edits=max_variant_edits,
+        max_variant_candidates=max_variant_candidates,
+    )
+    vocab = get_vocab(corpus_path, 2, 3, 0.6)
+    weights = load_weights("outputs/spellcheck/confusion.json")
     return {
         "word": word,
         "candidates": [{"token": w, "freq": int(freq)} for w, freq in cands],
@@ -164,7 +194,16 @@ def api_spellchecker():
     corpus_path = str(data.get("corpus_path", "data/raw/corpus.csv"))
     if not word:
         return jsonify({"error": "word is required"}), 400
-    return jsonify(_spell_suggestions_payload(word=word, corpus_path=corpus_path, top_k=5))
+    return jsonify(
+        _spell_suggestions_payload(
+            word=word,
+            corpus_path=corpus_path,
+            top_k=5,
+            max_dist=2,
+            max_variant_edits=3,
+            max_variant_candidates=80,
+        )
+    )
 
 
 @app.route("/api/ngram_suggestions", methods=["POST"])
@@ -219,8 +258,27 @@ def api_typing_assist():
     partial = _extract_current_partial_word(text)
     if not partial:
         return jsonify({"mode": "empty", "message": "Type letters to get spell suggestions."})
+    if len(partial) < 3:
+        return jsonify(
+            {
+                "mode": "spellcheck",
+                "input_text": text,
+                "current_token": partial,
+                "spell_suggestions": [],
+                "used_confusion": False,
+                "message": "Type at least 3 characters for spell suggestions.",
+            }
+        )
 
-    spell = _spell_suggestions_payload(word=partial, corpus_path=corpus_path, top_k=3)
+    # Typing mode uses stricter limits than the dedicated spellchecker tab to stay responsive.
+    spell = _spell_suggestions_payload(
+        word=partial,
+        corpus_path=corpus_path,
+        top_k=3,
+        max_dist=1 if len(partial) <= 4 else 2,
+        max_variant_edits=1,
+        max_variant_candidates=12,
+    )
     return jsonify(
         {
             "mode": "spellcheck",
@@ -235,22 +293,19 @@ def api_typing_assist():
 @app.route("/api/ui_status", methods=["GET"])
 def api_ui_status():
     corpus_path = request.args.get("corpus_path", "data/raw/corpus.csv")
-    spell_vocab_ready = True
-    try:
-        vocab = get_vocab(corpus_path, 2, 3, 0.6)
-        vocab_size = len(vocab)
-    except Exception as e:
-        spell_vocab_ready = False
-        vocab_size = None
-        spell_error = f"{type(e).__name__}: {e}"
-    else:
-        spell_error = None
+    corpus_exists = Path(corpus_path).exists()
+    spell_cache_info = get_vocab.cache_info()
+    spell_vocab_cached = bool(spell_cache_info.currsize)
 
     return jsonify(
         {
-            "spell_vocab_ready": spell_vocab_ready,
-            "spell_vocab_size": vocab_size,
-            "spell_error": spell_error,
+            "corpus_exists": corpus_exists,
+            "spell_vocab_cached": spell_vocab_cached,
+            "spell_cache_info": {
+                "hits": spell_cache_info.hits,
+                "misses": spell_cache_info.misses,
+                "currsize": spell_cache_info.currsize,
+            },
             "ngram_index_cached": bool(get_ngram_index.cache_info().currsize),
             "ngram_cache_info": {
                 "hits": get_ngram_index.cache_info().hits,
