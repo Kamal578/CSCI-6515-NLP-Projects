@@ -193,42 +193,48 @@ What to verify:
 - `best_method_by_order`
 - `overall_recommendation.selected_method` (chosen by trigram test perplexity)
 
-### Report Placeholders (Task 2)
+### Report Results (Task 2, filled from `outputs/project2/task2_smoothing/summary.json`)
 
 #### Fixed comparison settings (same as Task 1)
-- Corpus file: `[FILL]`
-- Text column: `[FILL]`
-- Train/Test split: `[FILL]`
-- Dev split (from train): `[FILL]`
-- Seed / Dev seed: `[FILL] / [FILL]`
-- Lowercasing: `[FILL]`
-- `unk_min_freq`: `[FILL]`
+- Corpus file: `data/raw/corpus.csv`
+- Text column: `text`
+- Train/Test split: `25,474 / 6,368` docs (`test_ratio=0.2`)
+- Dev split (from train): `64,914` sentences from train (`dev_ratio=0.1`, `train_core=584,221`, `dev=64,914`)
+- Seed / Dev seed: `42 / 43`
+- Lowercasing: `True`
+- `unk_min_freq`: `2`
 
 #### Bigram Results (Task 2)
 | Rank | Method | Dev Perplexity | Test Perplexity | Hyperparameters |
 |---:|---|---:|---:|---|
-| 1 | `[FILL]` | `[FILL]` | `[FILL]` | `[FILL]` |
-| 2 | `[FILL]` | `[FILL]` | `[FILL]` | `[FILL]` |
-| 3 | `[FILL]` | `[FILL]` | `[FILL]` | `[FILL]` |
-| 4 | `[FILL]` | `[FILL]` | `[FILL]` | `[FILL]` |
+| 1 | `kneser_ney` | `646.520451` | `609.074928` | `d=0.75` |
+| 2 | `backoff` | `688.625050` | `641.919075` | `d=0.75` |
+| 3 | `interpolation` | `742.725392` | `694.148777` | `lambdas=[0.3, 0.7]` |
+| 4 | `laplace` | `2263.284135` | `1976.539448` | `k=0.01` |
 
 #### Trigram Results (Task 2)
 | Rank | Method | Dev Perplexity | Test Perplexity | Hyperparameters |
 |---:|---|---:|---:|---|
-| 1 | `[FILL]` | `[FILL]` | `[FILL]` | `[FILL]` |
-| 2 | `[FILL]` | `[FILL]` | `[FILL]` | `[FILL]` |
-| 3 | `[FILL]` | `[FILL]` | `[FILL]` | `[FILL]` |
-| 4 | `[FILL]` | `[FILL]` | `[FILL]` | `[FILL]` |
+| 1 | `kneser_ney` | `391.449246` | `376.394760` | `d=0.75` |
+| 2 | `backoff` | `418.384178` | `398.309427` | `d=0.75` |
+| 3 | `interpolation` | `484.800043` | `455.434536` | `lambdas=[0.3, 0.4, 0.3]` |
+| 4 | `laplace` | `16351.363516` | `14997.943695` | `k=0.01` |
 
 #### Final Selection (Task 2)
-- Best smoothing method (by trigram test perplexity): `[FILL]`
-- Selected hyperparameters: `[FILL]`
-- Reason: `[FILL]`
+- Best smoothing method (by trigram test perplexity): `kneser_ney`
+- Selected hyperparameters: `d=0.75`
+- Reason: `Selected by lowest trigram test perplexity.`
 
 ### Task 2 Interpretation Notes (template)
 - Smoothing resolves the zero-probability problem observed in Task 1 for higher-order n-grams.
 - The best method should be selected using the predefined criterion (lowest trigram test perplexity).
 - Also discuss whether the bigram and trigram rankings agree or differ.
+
+### Task 2 Observed Results (this run)
+- All smoothing methods achieved **finite** bigram and trigram perplexity (`zero_prob_events = 0` on test).
+- `kneser_ney` ranked **#1** for both bigram and trigram.
+- `backoff` ranked **#2**, and was relatively close to Kneser-Ney.
+- `laplace` performed worst by a large margin on this dataset.
 
 ## Task 4: Logistic Regression for Dot-Based Sentence Boundary Detection (L1 vs L2)
 
@@ -244,6 +250,32 @@ What to verify:
 - Primary comparison metric: **sentence segmentation F1**
 - Secondary comparison metric: **dot-boundary F1**
 - Rule-based baseline is included (rule-derived dot heuristic from existing segmentation logic)
+
+Note for this run:
+- We also support a practical fallback workflow that converts a **sentence-per-line gold file** into:
+  - a labeled dot CSV, and
+  - a pseudo corpus CSV
+- This was used for the current Task 4 run with `data/processed/sent_gold_actual.txt`.
+
+### Alternative Task 4 Workflow (using sentence-per-line gold)
+If you have manually corrected sentence-per-line gold (like `data/processed/sent_gold_actual.txt`) but not a dot-label CSV:
+```bash
+.venv/bin/python -m src.task4_build_labels_from_gold_sentences \
+  --gold_sentences data/processed/sent_gold_actual.txt \
+  --out_labels_csv data/processed/task4_dot_labels_from_sent_gold_actual.csv \
+  --out_corpus_csv data/processed/task4_sent_gold_actual_pseudo_corpus.csv \
+  --sentences_per_doc 10
+```
+Then train/evaluate using those outputs:
+```bash
+.venv/bin/python -m src.task4_sentence_lr \
+  --labels_csv data/processed/task4_dot_labels_from_sent_gold_actual.csv \
+  --corpus_path data/processed/task4_sent_gold_actual_pseudo_corpus.csv \
+  --text_column text \
+  --primary_metric sent_f1 \
+  --compare_rule_baseline \
+  --out_dir outputs/project2/task4_lr_sent_gold_actual
+```
 
 ### Step 1: Export Manual Label Template
 ```bash
@@ -273,6 +305,10 @@ Then manually fill `gold_label` (`1`=EOS, `0`=NOT_EOS) and save as:
   --out_dir outputs/project2/task4_lr
 ```
 
+Dependencies for Task 4:
+- `scikit-learn`
+- `joblib`
+
 ### Task 4 Output Files
 - `outputs/project2/task4_lr/summary.json` — full run configuration + metrics + winner
 - `outputs/project2/task4_lr/comparison.csv` — `rule_based`, `lr_l1`, `lr_l2` side-by-side
@@ -296,38 +332,51 @@ What to verify:
 - `test_results.rule_based` (if `--compare_rule_baseline` is enabled)
 - `tuning.selected_c` values for L1 and L2
 
-### Report Placeholders (Task 4)
+### Report Results (Task 4, filled from `outputs/project2/task4_lr_sent_gold_actual/summary.json`)
 
 #### Labeling / Dataset
-- Labeled CSV used: `[FILL]`
-- Total labeled dot candidates: `[FILL]`
-- Total labeled documents: `[FILL]`
-- Split mode (`doc` / fallback): `[FILL]`
-- Train / Dev / Test rows: `[FILL]`
-- Train / Dev / Test docs: `[FILL]`
+- Labeled CSV used: `data/processed/task4_dot_labels_from_sent_gold_actual.csv`
+- Gold source for this run: `data/processed/sent_gold_actual.txt` converted to dot labels + pseudo corpus
+- Total labeled dot candidates: `1,089`
+- Total labeled documents (pseudo-docs): `100`
+- Split mode (`doc` / fallback): `doc`
+- Train / Dev / Test rows: `750 / 178 / 161`
+- Train / Dev / Test docs: `70 / 15 / 15`
+- Class balance (all rows): `1000 EOS` vs `89 NOT_EOS`
 
 #### Dot-Level Metrics (Secondary)
 | Model | Precision | Recall | F1 | Notes |
 |---|---:|---:|---:|---|
-| Rule-based | `[FILL]` | `[FILL]` | `[FILL]` | `[FILL]` |
-| LR (L1) | `[FILL]` | `[FILL]` | `[FILL]` | `C=[FILL]` |
-| LR (L2) | `[FILL]` | `[FILL]` | `[FILL]` | `C=[FILL]` |
+| Rule-based | `1.0000` | `0.9933` | `0.9967` | Missed 1 EOS dot on test (no false positives). |
+| LR (L1) | `1.0000` | `1.0000` | `1.0000` | `C=0.1` |
+| LR (L2) | `1.0000` | `0.9933` | `0.9967` | `C=0.1` (same test performance as rule baseline) |
 
 #### Sentence Segmentation Metrics (Primary)
 | Model | Precision | Recall | F1 | BDER | Notes |
 |---|---:|---:|---:|---:|---|
-| Rule-based | `[FILL]` | `[FILL]` | `[FILL]` | `[FILL]` | `[FILL]` |
-| LR (L1) | `[FILL]` | `[FILL]` | `[FILL]` | `[FILL]` | `C=[FILL]` |
-| LR (L2) | `[FILL]` | `[FILL]` | `[FILL]` | `[FILL]` | `C=[FILL]` |
+| Rule-based | `1.0000` | `0.9933` | `0.9967` | `0.0067` | One missed boundary (under-segmentation once). |
+| LR (L1) | `1.0000` | `1.0000` | `1.0000` | `0.0000` | `C=0.1` |
+| LR (L2) | `1.0000` | `0.9933` | `0.9967` | `0.0067` | `C=0.1` |
 
 #### Final Comparison (Task 4)
 - Primary metric used: `sentence segmentation F1`
-- Better regularization: `[FILL]`
-- Selection reason: `[FILL]`
-- Secondary metric (dot F1) summary: `[FILL]`
+- Better regularization: `L1`
+- Selection reason: `Higher test sentence segmentation F1.`
+- Secondary metric (dot F1) summary: `L1 achieved 1.0000; L2 achieved 0.9967 (L2 missed one EOS dot, no false positives).`
 
 ### Task 4 Interpretation Notes (template)
 - The logistic regression classifier predicts whether a `.` marks sentence end using local character/token context features.
 - L1 and L2 regularization were tuned on a dev split and compared on a held-out test split.
 - Final sentence segmentation is reconstructed using predicted dot EOS labels plus deterministic `!` / `?` boundaries.
 - Compare the learned model(s) against the rule-based baseline and discuss error patterns (abbreviations, decimals, initials, quotes).
+
+### Task 4 Observed Results (this run)
+- `lr_l1` achieved perfect test performance on this evaluation setup (`sentence F1 = 1.0000`, `dot F1 = 1.0000`).
+- `lr_l2` matched the rule-based baseline on test (`sentence F1 = 0.9967`, `dot F1 = 0.9967`).
+- Both L1 and L2 selected `C = 0.1` from the dev tuning grid.
+
+### Task 4 Caveat (important to mention in report)
+- This Task 4 run used a **pseudo-corpus** reconstructed from `sent_gold_actual.txt` (manual sentence-per-line gold), grouped into fixed-size pseudo-documents.
+- This is valid for comparing L1 vs L2 and benchmarking against the rule-based baseline, but it is not identical to evaluating on original raw corpus document boundaries.
+- The dataset is highly imbalanced (`EOS` >> `NOT_EOS`), so report both sentence-level and dot-level metrics.
+- You may see sklearn deprecation warnings about `penalty`; they do not invalidate the reported metrics (implementation compatibility cleanup can be done later).
