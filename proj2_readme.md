@@ -337,32 +337,32 @@ What to verify:
 #### Labeling / Dataset
 - Labeled CSV used: `data/processed/task4_dot_labels_from_sent_gold_actual.csv`
 - Gold source for this run: `data/processed/sent_gold_actual.txt` converted to dot labels + pseudo corpus
-- Total labeled dot candidates: `1,089`
-- Total labeled documents (pseudo-docs): `100`
+- Total labeled dot candidates: `2,199`
+- Total labeled documents (pseudo-docs): `150`
 - Split mode (`doc` / fallback): `doc`
-- Train / Dev / Test rows: `750 / 178 / 161`
-- Train / Dev / Test docs: `70 / 15 / 15`
-- Class balance (all rows): `1000 EOS` vs `89 NOT_EOS`
+- Train / Dev / Test rows: `1,554 / 306 / 339`
+- Train / Dev / Test docs: `106 / 22 / 22`
+- Class balance (all rows): `1500 EOS` vs `699 NOT_EOS`
 
 #### Dot-Level Metrics (Secondary)
 | Model | Precision | Recall | F1 | Notes |
 |---|---:|---:|---:|---|
-| Rule-based | `1.0000` | `0.9933` | `0.9967` | Missed 1 EOS dot on test (no false positives). |
-| LR (L1) | `1.0000` | `1.0000` | `1.0000` | `C=0.1` |
-| LR (L2) | `1.0000` | `0.9933` | `0.9967` | `C=0.1` (same test performance as rule baseline) |
+| Rule-based | `1.0000` | `1.0000` | `1.0000` | Perfect on this test split. |
+| LR (L1) | `1.0000` | `1.0000` | `1.0000` | `C=1.0` |
+| LR (L2) | `1.0000` | `1.0000` | `1.0000` | `C=10.0` |
 
 #### Sentence Segmentation Metrics (Primary)
 | Model | Precision | Recall | F1 | BDER | Notes |
 |---|---:|---:|---:|---:|---|
-| Rule-based | `1.0000` | `0.9933` | `0.9967` | `0.0067` | One missed boundary (under-segmentation once). |
-| LR (L1) | `1.0000` | `1.0000` | `1.0000` | `0.0000` | `C=0.1` |
-| LR (L2) | `1.0000` | `0.9933` | `0.9967` | `0.0067` | `C=0.1` |
+| Rule-based | `1.0000` | `1.0000` | `1.0000` | `0.0000` | Perfect on this test split. |
+| LR (L1) | `1.0000` | `1.0000` | `1.0000` | `0.0000` | `C=1.0` |
+| LR (L2) | `1.0000` | `1.0000` | `1.0000` | `0.0000` | `C=10.0` |
 
 #### Final Comparison (Task 4)
 - Primary metric used: `sentence segmentation F1`
 - Better regularization: `L1`
-- Selection reason: `Higher test sentence segmentation F1.`
-- Secondary metric (dot F1) summary: `L1 achieved 1.0000; L2 achieved 0.9967 (L2 missed one EOS dot, no false positives).`
+- Selection reason: `Sentence and dot F1 tie; fewer/equal false-positive EOS predictions.`
+- Secondary metric (dot F1) summary: `Rule-based, L1, and L2 all achieved 1.0000 on this test split; L1 was selected by the tie-breaker.`
 
 ### Task 4 Interpretation Notes (template)
 - The logistic regression classifier predicts whether a `.` marks sentence end using local character/token context features.
@@ -371,12 +371,12 @@ What to verify:
 - Compare the learned model(s) against the rule-based baseline and discuss error patterns (abbreviations, decimals, initials, quotes).
 
 ### Task 4 Observed Results (this run)
-- `lr_l1` achieved perfect test performance on this evaluation setup (`sentence F1 = 1.0000`, `dot F1 = 1.0000`).
-- `lr_l2` matched the rule-based baseline on test (`sentence F1 = 0.9967`, `dot F1 = 0.9967`).
-- Both L1 and L2 selected `C = 0.1` from the dev tuning grid.
+- After expanding `sent_gold_actual.txt` (including many internal-dot negatives), the derived Task 4 dataset increased to `2,199` labeled dot candidates with `699` `NOT_EOS` examples.
+- `rule_based`, `lr_l1`, and `lr_l2` all achieved perfect test performance on this split (`sentence F1 = 1.0000`, `dot F1 = 1.0000`).
+- Selected hyperparameters from dev tuning: `C=1.0` (L1) and `C=10.0` (L2); winner remained `lr_l1` via the built-in tie-breaker.
 
 ### Task 4 Caveat (important to mention in report)
 - This Task 4 run used a **pseudo-corpus** reconstructed from `sent_gold_actual.txt` (manual sentence-per-line gold), grouped into fixed-size pseudo-documents.
 - This is valid for comparing L1 vs L2 and benchmarking against the rule-based baseline, but it is not identical to evaluating on original raw corpus document boundaries.
-- The dataset is highly imbalanced (`EOS` >> `NOT_EOS`), so report both sentence-level and dot-level metrics.
+- The dataset is still imbalanced (`EOS` > `NOT_EOS`), though the negative class coverage is substantially improved compared to the earlier run; report both sentence-level and dot-level metrics.
 - You may see sklearn deprecation warnings about `penalty`; they do not invalidate the reported metrics (implementation compatibility cleanup can be done later).
