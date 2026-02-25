@@ -545,3 +545,68 @@ What to verify:
 - This is valid for comparing L1 vs L2 and benchmarking against the rule-based baseline, but it is not identical to evaluating on original raw corpus document boundaries.
 - The dataset is still imbalanced (`EOS` > `NOT_EOS`), though the negative class coverage is substantially improved compared to the earlier run; report both sentence-level and dot-level metrics.
 - You may see sklearn deprecation warnings about `penalty`; they do not invalidate the reported metrics (implementation compatibility cleanup can be done later).
+
+## Project 2 Extra Task: UI for Program Results (20%)
+
+### Goal
+Provide a single, user-friendly UI that demonstrates and integrates the key program results/functions:
+- Spellchecker (existing functionality)
+- N-gram next-word suggestions (1-gram / 2-gram / 3-gram)
+- Sentence delimiter visualization
+- Real-time typing assistance (next-word suggestions vs spell suggestions)
+
+### Implementation Summary
+- Backend: `Flask` app in `src/project2_results_ui.py`
+- Frontend: tabbed UI in `src/project2_results_ui.html`
+- Integration strategy:
+  - Reuses existing spellchecker logic from `src/serve_spellcheck.py`
+  - Reuses `src/tokenize.py` and `src/sentence_segment.py`
+  - Builds a lazy in-memory n-gram index from the corpus for interactive suggestions
+
+### Tabs Implemented
+
+#### 1) Spellchecker
+- Uses the existing spellcheck suggestion algorithm (including weighted edit distance when `outputs/spellcheck/confusion.json` exists)
+- Shows ranked correction candidates with token frequencies
+
+#### 2) N-Grams Suggestions
+- Input arbitrary context text
+- Displays top 3 next-word suggestions for:
+  - `1-gram`
+  - `2-gram` (conditioned on last 1 token)
+  - `3-gram` (conditioned on last 2 tokens)
+- Shows fallback behavior when a higher-order context has no matches
+
+#### 3) Sentence Delimiter
+- Input text
+- Outputs segmented sentences using the project sentence segmenter
+- Sentence boundaries are visually marked with a **red period** separator
+
+#### 4) Typing Assistance (Real-time)
+- If the last character is a space:
+  - Shows best next-word suggestions labeled as `Best 3-gram`, `Best 2-gram`, `Best 1-gram`
+- If the last character is not a space:
+  - Extracts the current partial token and shows top 3 spellcheck suggestions
+
+### How to Run the UI
+```bash
+.venv/bin/python -m src.project2_results_ui --host 127.0.0.1 --port 5001
+```
+Then open:
+```text
+http://127.0.0.1:5001/
+```
+
+### Notes on Performance
+- The n-gram index is built lazily on first use and cached in memory.
+- The spellchecker can be slow on first request because it builds/loads vocabulary from the corpus and scans candidates.
+- For quicker demos during development, the N-gram tab supports an optional `max_docs` cap (via UI field).
+
+### Files Added / Used for Extra Task UI
+- `src/project2_results_ui.py`
+- `src/project2_results_ui.html`
+- Reused:
+  - `src/serve_spellcheck.py`
+  - `src/tokenize.py`
+  - `src/sentence_segment.py`
+  - `src/spellcheck.py`
