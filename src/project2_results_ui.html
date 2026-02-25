@@ -431,6 +431,7 @@
     const state = {
       typingTimer: null,
       ngramCacheHintShown: false,
+      typingAssistRequestSeq: 0,
     };
 
     function $(id) { return document.getElementById(id); }
@@ -598,6 +599,7 @@
     async function runTypingAssist() {
       const out = $("typingResults");
       const text = $("typingInput").value;
+      const requestSeq = ++state.typingAssistRequestSeq;
       const payload = {
         text,
         corpus_path: $("sharedCorpusPathTyping").value.trim() || "data/raw/corpus.csv",
@@ -610,6 +612,8 @@
       out.innerHTML = `<div class="muted">Analyzing input...</div>`;
       try {
         const data = await postJSON("/api/typing_assist", payload);
+        const isStale = requestSeq !== state.typingAssistRequestSeq || $("typingInput").value !== text;
+        if (isStale) return;
         if (data.mode === "empty") {
           out.innerHTML = `<div class="empty">${esc(data.message || "No suggestions yet.")}</div>`;
           return;
@@ -635,6 +639,8 @@
         }
         out.innerHTML = `<div class="empty">Unhandled mode.</div>`;
       } catch (err) {
+        const isStale = requestSeq !== state.typingAssistRequestSeq || $("typingInput").value !== text;
+        if (isStale) return;
         out.innerHTML = `<div class="error">Error: ${esc(err.message)}</div>`;
       }
     }
