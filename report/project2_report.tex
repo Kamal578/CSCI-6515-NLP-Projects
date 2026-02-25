@@ -1,0 +1,436 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{amsmath}
+\setlist{nosep}
+\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue}
+
+\title{Project 2: Language Modelling and Text Classification\\\large (with UI for Program Results)}
+\author{
+\textbf{Kamal Ahmadov} \and \textbf{Rufat Guliyev}
+}
+\date{Spring 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This report presents the implementation and evaluation of Project 2 tasks on Azerbaijani text data: (1) unigram/bigram/trigram language models with perplexity, (2) smoothing comparison (Laplace, interpolation, backoff, Kneser--Ney), (3) sentiment classification with Multinomial Naive Bayes, Bernoulli Naive Bayes, and Logistic Regression using Bag-of-Words and sentiment-lexicon features plus statistical significance testing, (4) logistic regression for dot-based sentence boundary detection with L1/L2 regularization, and (5) a UI for demonstrating program results interactively. Results are generated from saved project outputs in \texttt{outputs/project2/*} and documented with reproducible commands.
+\end{abstract}
+
+\section{Project Statement and Scope}
+Project 2 addresses language modelling and text classification tasks:
+\begin{itemize}
+    \item \textbf{Task 1:} Train unigram, bigram, and trigram models and compute perplexity.
+    \item \textbf{Task 2:} Apply Laplace, interpolation, backoff, and Kneser--Ney smoothing and determine the best method.
+    \item \textbf{Task 3:} Compare Naive Bayes, Bernoulli Naive Bayes, and Logistic Regression on a sentiment dataset using BoW and sentiment-lexicon features; perform statistical significance testing.
+    \item \textbf{Task 4:} Use logistic regression (L1/L2) to classify whether a dot marks end-of-sentence and reconstruct sentence boundaries.
+    \item \textbf{Task 5:} Write the report.
+    \item \textbf{Extra Task:} Create a UI for program results.
+\end{itemize}
+
+The implementation uses a combination of the original corpus from Project 1 (for language modelling and the UI demos) and an external Azerbaijani sentiment dataset for Task 3.
+
+\section{Codebase Organization and Reproducibility}
+\subsection{Project 2 Modules}
+To distinguish Project 2 code from Project 1 modules, Project 2 files in \texttt{src/} were renamed with a \texttt{project2\_} prefix. Key entry points include:
+\begin{itemize}
+    \item \texttt{src/project2\_task1\_lm.py}
+    \item \texttt{src/project2\_task2\_smoothing.py}
+    \item \texttt{src/project2\_task3\_sentiment.py}
+    \item \texttt{src/project2\_task4\_sentence\_lr.py}
+    \item \texttt{src/project2\_results\_ui.py} (Extra Task UI)
+\end{itemize}
+
+\subsection{Runner Script}
+The consolidated Project 2 runner is:
+\begin{verbatim}
+bash scripts/run_project2.sh
+\end{verbatim}
+It runs Tasks 1 and 2 on the main corpus, Task 3 when the sentiment CSVs exist in \texttt{data/external/}, and Task 4 when Task 4 gold labels/pseudo-corpus files are available.
+
+\subsection{Primary Output Directories}
+\begin{itemize}
+    \item \texttt{outputs/project2/task1\_lm}
+    \item \texttt{outputs/project2/task2\_smoothing}
+    \item \texttt{outputs/project2/task3\_sentiment}
+    \item \texttt{outputs/project2/task4\_lr\_sent\_gold\_actual}
+\end{itemize}
+
+\section{Task 1: Unigram, Bigram, Trigram Language Models + Perplexity}
+\subsection{Method}
+We trained unsmoothed Maximum Likelihood Estimation (MLE) language models of orders \(n=1,2,3\) using:
+\begin{itemize}
+    \item corpus file: \texttt{data/raw/corpus.csv}
+    \item tokenization: \texttt{src/tokenize.py}
+    \item sentence segmentation: \texttt{src/sentence\_segment.py}
+    \item train/test split at document level (\(80/20\), seed \(=42\))
+    \item \texttt{<unk>} mapping with \texttt{unk\_min\_freq=2}
+\end{itemize}
+
+Task 1 implementation: \texttt{src/project2\_task1\_lm.py}. Main results are stored in \texttt{outputs/project2/task1\_lm/summary.json}.
+
+\subsection{Dataset Split and Vocabulary (Task 1)}
+\begin{itemize}
+    \item Total documents: 31{,}842
+    \item Train / Test documents: 25{,}474 / 6{,}368
+    \item Train vocabulary size (after \texttt{<unk>} thresholding): 246{,}634
+    \item Test OOV rate vs.\ train vocabulary: 3.8677\%
+\end{itemize}
+
+\subsection{Perplexity Results (Unsmoothed MLE)}
+\begin{table}[h]
+\centering
+\begin{tabular}{lrrr}
+\toprule
+\textbf{Model} & \textbf{Perplexity} & \textbf{Zero-probability events} & \textbf{Test events} \\
+\midrule
+Unigram & 5107.303 & 0 & 2{,}530{,}518 \\
+Bigram & $\infty$ & 612{,}997 & 2{,}530{,}518 \\
+Trigram & $\infty$ & 1{,}324{,}990 & 2{,}530{,}518 \\
+\bottomrule
+\end{tabular}
+\caption{Task 1 perplexity results without smoothing (from \texttt{outputs/project2/task1\_lm/summary.json}).}
+\end{table}
+
+\subsection{Interpretation}
+The unigram model yields finite perplexity because \texttt{<unk>} mapping removes unseen token failures at the token level. Bigram and trigram MLE models assign zero probability to many unseen test n-grams, causing infinite perplexity. This is expected and motivates smoothing in Task 2.
+
+\section{Task 2: Smoothing Comparison (Laplace, Interpolation, Backoff, Kneser--Ney)}
+\subsection{Method}
+We evaluated the following smoothing methods for bigram and trigram models:
+\begin{itemize}
+    \item Laplace (Add-\(k\))
+    \item Linear Interpolation
+    \item Discount backoff/interpolation hybrid (normalized)
+    \item Interpolated Kneser--Ney
+\end{itemize}
+
+Task 2 implementation: \texttt{src/project2\_task2\_smoothing.py}, with supporting count/probability logic in \texttt{src/project2\_smoothing\_lm.py}. Hyperparameters were tuned on a dev split, then the selected setting for each method/order was evaluated on the held-out test split.
+
+\subsection{Task 2 Setup}
+\begin{itemize}
+    \item Corpus: \texttt{data/raw/corpus.csv}
+    \item Same preprocessing/tokenization/sentence segmentation/\texttt{<unk>} policy as Task 1
+    \item Test split ratio: 0.2 (seed 42)
+    \item Dev split ratio from train: 0.1 (dev seed 43)
+    \item Orders evaluated: 2 and 3
+\end{itemize}
+
+\subsection{Bigram Smoothing Results}
+\begin{table}[h]
+\centering
+\begin{tabular}{llrr}
+\toprule
+\textbf{Rank} & \textbf{Method} & \textbf{Dev PPL} & \textbf{Test PPL} \\
+\midrule
+1 & Kneser--Ney & 646.520 & 609.075 \\
+2 & Backoff & 688.625 & 641.919 \\
+3 & Interpolation & 742.725 & 694.149 \\
+4 & Laplace & 2263.284 & 1976.539 \\
+\bottomrule
+\end{tabular}
+\caption{Task 2 bigram smoothing comparison (all methods have zero test zero-probability events).}
+\end{table}
+
+\subsection{Trigram Smoothing Results}
+\begin{table}[h]
+\centering
+\begin{tabular}{llrr}
+\toprule
+\textbf{Rank} & \textbf{Method} & \textbf{Dev PPL} & \textbf{Test PPL} \\
+\midrule
+1 & Kneser--Ney & 391.449 & 376.395 \\
+2 & Backoff & 418.384 & 398.309 \\
+3 & Interpolation & 484.800 & 455.435 \\
+4 & Laplace & 16351.364 & 14997.944 \\
+\bottomrule
+\end{tabular}
+\caption{Task 2 trigram smoothing comparison (from \texttt{outputs/project2/task2\_smoothing/comparison.csv}).}
+\end{table}
+
+\subsection{Best Smoothing Method}
+The overall selected method is \textbf{Kneser--Ney} (trigram criterion), with:
+\begin{itemize}
+    \item selected order: trigram
+    \item discount \(D = 0.75\)
+    \item test perplexity: 376.3948
+    \item selection reason (saved): \emph{Selected by lowest trigram test perplexity.}
+\end{itemize}
+
+\subsection{Interpretation}
+Smoothing completely eliminates zero-probability test events for higher-order models in this setup. Kneser--Ney performs best for both bigram and trigram models, which is consistent with its strong empirical behavior on sparse n-gram distributions.
+
+\section{Task 3: Sentiment Classification with BoW and Sentiment Lexicon}
+\subsection{Dataset}
+For Task 3, we used a different dataset than the main corpus:
+\begin{itemize}
+    \item \href{https://huggingface.co/datasets/hajili/azerbaijani_review_sentiment_classification}{hajili/azerbaijani\_review\_sentiment\_classification}
+    \item local files: \texttt{data/external/train.csv}, \texttt{data/external/test.csv}
+    \item columns: \texttt{content} (text), \texttt{score} (rating)
+\end{itemize}
+
+We used a 3-class mapping (\texttt{sentiment3}):
+\[
+1,2 \rightarrow \text{negative}, \quad 3 \rightarrow \text{neutral}, \quad 4,5 \rightarrow \text{positive}
+\]
+
+\subsection{Models and Features}
+\textbf{Classifiers compared}
+\begin{itemize}
+    \item Multinomial Naive Bayes
+    \item Bernoulli Naive Bayes (Binary Naive Bayes)
+    \item Logistic Regression
+\end{itemize}
+
+\textbf{Feature sets compared}
+\begin{itemize}
+    \item \textbf{BoW}: CountVectorizer with custom Azerbaijani preprocessing/tokenization (legacy-compatible)
+    \item \textbf{Sentiment lexicon}: training-induced polarity lexicon + aggregate lexicon statistics per document
+    \item \textbf{BoW + Lexicon}: sparse concatenation of BoW and lexicon aggregate features
+\end{itemize}
+
+Task 3 implementation is modularized in:
+\begin{itemize}
+    \item \texttt{src/project2\_task3\_sentiment.py} (runner)
+    \item \texttt{src/project2\_task3\_sentiment\_*.py} (data, preprocessing, features, models, stats)
+\end{itemize}
+
+\subsection{Task 3 Dataset Statistics}
+\begin{itemize}
+    \item Train set size: 127{,}537
+    \item Test set size: 31{,}885
+    \item Train label distribution: positive 108{,}378; negative 16{,}396; neutral 2{,}763
+    \item Test label distribution: positive 27{,}136; negative 4{,}079; neutral 670
+\end{itemize}
+The dataset is highly imbalanced toward the positive class, so \textbf{macro-F1} is used as the primary comparison metric.
+
+\subsection{Feature Metadata}
+\begin{itemize}
+    \item BoW vocabulary size: 48{,}874
+    \item Induced sentiment lexicon size: 1{,}000 tokens (500 positive + 500 negative)
+    \item Lexicon aggregate feature count: 11
+    \item BoW+Lexicon total feature count: 48{,}885
+\end{itemize}
+
+\subsection{All Experiments (9 combinations)}
+\begin{table}[h]
+\centering
+\begin{tabular}{llrrr}
+\toprule
+\textbf{Rank} & \textbf{Experiment} & \textbf{Accuracy} & \textbf{Macro-F1} & \textbf{Weighted-F1} \\
+\midrule
+1 & MultinomialNB + BoW+Lexicon & 0.8650 & 0.5590 & 0.8732 \\
+2 & Logistic Regression + BoW & 0.8998 & 0.5523 & 0.8884 \\
+3 & MultinomialNB + BoW & 0.9006 & 0.5415 & 0.8922 \\
+4 & Logistic Regression + BoW+Lexicon & 0.8985 & 0.5342 & 0.8836 \\
+5 & BernoulliNB + BoW+Lexicon & 0.8796 & 0.5300 & 0.8753 \\
+6 & BernoulliNB + BoW & 0.8676 & 0.5049 & 0.8607 \\
+7 & MultinomialNB + Lexicon & 0.8795 & 0.4694 & 0.8540 \\
+8 & Logistic Regression + Lexicon & 0.8828 & 0.4650 & 0.8552 \\
+9 & BernoulliNB + Lexicon & 0.5784 & 0.3526 & 0.6376 \\
+\bottomrule
+\end{tabular}
+\caption{Task 3 metrics summary (from \texttt{outputs/project2/task3\_sentiment/metrics.csv}).}
+\end{table}
+
+\subsection{Best-by-Classifier and Best-by-Feature Summaries}
+\textbf{Best feature set per classifier}
+\begin{itemize}
+    \item MultinomialNB: BoW+Lexicon (\(F1_{macro}=0.5590\))
+    \item Logistic Regression: BoW (\(F1_{macro}=0.5523\))
+    \item BernoulliNB: BoW+Lexicon (\(F1_{macro}=0.5300\))
+\end{itemize}
+
+\textbf{Best classifier per feature set}
+\begin{itemize}
+    \item BoW: Logistic Regression (\(F1_{macro}=0.5523\))
+    \item Lexicon-only: MultinomialNB (\(F1_{macro}=0.4694\))
+    \item BoW+Lexicon: MultinomialNB (\(F1_{macro}=0.5590\))
+\end{itemize}
+
+\subsection{Statistical Significance Testing}
+We used \textbf{McNemar exact tests} on paired test predictions, with \textbf{Holm--Bonferroni correction} at \(\alpha=0.05\). Results are saved in:
+\begin{itemize}
+    \item \texttt{outputs/project2/task3\_sentiment/significance\_within\_feature\_set.csv}
+    \item \texttt{outputs/project2/task3\_sentiment/significance\_top\_vs\_others.csv}
+\end{itemize}
+
+\textbf{Within feature set conclusions}
+\begin{itemize}
+    \item \textbf{BoW}: MultinomialNB vs Logistic Regression is \emph{not significant} (\(p=0.5143\)); BernoulliNB is significantly different (worse) than both.
+    \item \textbf{Lexicon-only}: All pairwise differences are significant after Holm correction.
+    \item \textbf{BoW+Lexicon}: All pairwise differences are significant after Holm correction; MultinomialNB outperforms both BernoulliNB and Logistic Regression.
+\end{itemize}
+
+\textbf{Top model vs others}
+The top model (\texttt{multinomial\_nb\_\_bow+lexicon}) is significantly better than most alternatives, except \texttt{bernoulli\_nb\_\_bow} (non-significant under Holm correction, \(p=0.1321\)).
+
+\subsection{Task 3 Conclusion: Which Classifier Is Better?}
+Under the assignment criterion emphasizing a balanced multi-class comparison (macro-F1), the best overall system is:
+\begin{center}
+\textbf{Multinomial Naive Bayes + BoW + sentiment lexicon features}
+\end{center}
+It achieves the best macro-F1 (0.5590) and shows statistically significant improvements over most alternatives in paired-comparison tests.
+
+We also note that Logistic Regression + BoW achieves higher accuracy (0.8998) due to stronger majority-class performance, but lower macro-F1 than the best MultinomialNB configuration.
+
+\subsection{Observed Limitations (Task 3)}
+\begin{itemize}
+    \item Neutral-class performance is low across all models (e.g., the top model has \(F1_{neutral}\approx 0.104\)), reflecting class imbalance and label ambiguity.
+    \item Some Logistic Regression runs produced convergence warnings (\texttt{max\_iter} reached), although the pipeline completed successfully and saved outputs.
+\end{itemize}
+
+\section{Task 4: Dot-based Sentence Boundary Detection with Logistic Regression (L1 vs L2)}
+\subsection{Method}
+Task 4 predicts whether a dot character ``.'' is an end-of-sentence boundary (\texttt{EOS}) or not. The predicted dot labels are then used to reconstruct sentence boundaries. We compare:
+\begin{itemize}
+    \item Logistic Regression with L1 regularization
+    \item Logistic Regression with L2 regularization
+    \item Rule-based baseline (derived from the existing sentence segmentation heuristics)
+\end{itemize}
+
+Implementation:
+\begin{itemize}
+    \item \texttt{src/project2\_task4\_sentence\_lr.py}
+    \item \texttt{src/project2\_task4\_dot\_features.py}
+    \item \texttt{src/project2\_task4\_dot\_model.py}
+\end{itemize}
+
+\subsection{Task 4 Data Construction and Evaluation Setup}
+For this run, we used a manually curated sentence-per-line file (\texttt{data/processed/sent\_gold\_actual.txt}) and converted it into:
+\begin{itemize}
+    \item a labeled dot dataset (\texttt{task4\_dot\_labels\_from\_sent\_gold\_actual.csv})
+    \item a pseudo-corpus CSV (\texttt{task4\_sent\_gold\_actual\_pseudo\_corpus.csv})
+\end{itemize}
+using \texttt{src/project2\_task4\_build\_labels\_from\_gold\_sentences.py}.
+
+\subsection{Task 4 Dataset Statistics}
+\begin{itemize}
+    \item Total labeled dot candidates: 2{,}199
+    \item Total pseudo-docs: 150
+    \item Class balance: 1{,}500 EOS vs 699 NOT\_EOS
+    \item Split mode: doc-level
+    \item Train / Dev / Test rows: 1{,}554 / 306 / 339
+    \item Train / Dev / Test docs: 106 / 22 / 22
+\end{itemize}
+
+\subsection{Hyperparameter Selection}
+Dev tuning selected:
+\begin{itemize}
+    \item L1: \(C=1.0\)
+    \item L2: \(C=10.0\)
+\end{itemize}
+
+\subsection{Dot-level and Sentence-level Results}
+\begin{table}[h]
+\centering
+\begin{tabular}{lcccc}
+\toprule
+\textbf{Model} & \textbf{Dot F1} & \textbf{Sentence F1} & \textbf{BDER} & \textbf{Notes} \\
+\midrule
+Rule-based & 1.0000 & 1.0000 & 0.0000 & Perfect on this test split \\
+LR (L1) & 1.0000 & 1.0000 & 0.0000 & \(C=1.0\) \\
+LR (L2) & 1.0000 & 1.0000 & 0.0000 & \(C=10.0\) \\
+\bottomrule
+\end{tabular}
+\caption{Task 4 evaluation summary (from \texttt{outputs/project2/task4\_lr\_sent\_gold\_actual/summary.json}).}
+\end{table}
+
+\subsection{L1 vs L2 Comparison Outcome}
+All three systems (rule-based, LR-L1, LR-L2) achieved perfect test metrics on this split. The saved winner is \texttt{lr\_l1} by tie-breaker:
+\begin{quote}
+\emph{Sentence and dot F1 tie; fewer/equal false-positive EOS predictions.}
+\end{quote}
+
+\subsection{Task 4 Caveats}
+\begin{itemize}
+    \item This evaluation uses a pseudo-corpus reconstructed from sentence-per-line gold data, not original raw document boundaries.
+    \item Although the negative class coverage improved substantially (699 NOT\_EOS examples), the test split appears relatively easy because all compared systems achieve perfect performance.
+\end{itemize}
+
+\section{Extra Task: UI for Program Results}
+\subsection{Goal}
+The extra task requires a user interface demonstrating the program outputs and interactive functionality for multiple components.
+
+\subsection{Implementation}
+We implemented a unified Flask-based UI:
+\begin{itemize}
+    \item Backend: \texttt{src/project2\_results\_ui.py}
+    \item Frontend: \texttt{src/project2\_results\_ui.html}
+\end{itemize}
+
+The UI integrates existing functionality instead of reimplementing it:
+\begin{itemize}
+    \item Spellchecker logic is reused from \texttt{src/serve\_spellcheck.py}
+    \item Tokenization is reused from \texttt{src/tokenize.py}
+    \item Sentence segmentation is reused from \texttt{src/sentence\_segment.py}
+\end{itemize}
+
+\subsection{Tabs Implemented}
+\begin{enumerate}[label=\arabic*.]
+    \item \textbf{Spellchecker} (existing functionality integrated)
+    \item \textbf{N-Grams Suggestions} (top-3 next-word suggestions for 1-gram, 2-gram, 3-gram)
+    \item \textbf{Sentence Delimiter} (sentence splitting with a visually distinct red period boundary marker)
+    \item \textbf{Typing Assistance} (real-time switch between next-word suggestions and spellcheck suggestions depending on whether the last typed character is a space)
+\end{enumerate}
+
+\subsection{N-gram Suggestion UI Design}
+For responsiveness, the UI backend builds a lazy in-memory n-gram suggestion index:
+\begin{itemize}
+    \item unigrams (global token frequencies)
+    \item bigram next-word counters \(P(w_i \mid w_{i-1})\)-style counts
+    \item trigram next-word counters \(P(w_i \mid w_{i-2}, w_{i-1})\)-style counts
+\end{itemize}
+The index is cached using \texttt{lru\_cache}, and the UI provides fallback behavior (e.g., trigram \(\rightarrow\) bigram \(\rightarrow\) unigram) when a higher-order context is unseen.
+
+\subsection{Run Command}
+\begin{verbatim}
+python -m src.project2_results_ui --host 127.0.0.1 --port 5001
+\end{verbatim}
+Then open \texttt{http://127.0.0.1:5001/}.
+
+\subsection{Smoke Test Verification}
+A backend smoke test was run via Flask's test client and all key endpoints returned HTTP 200:
+\begin{itemize}
+    \item \texttt{/api/spellchecker}
+    \item \texttt{/api/ngram\_suggestions}
+    \item \texttt{/api/sentence\_delimiter}
+    \item \texttt{/api/typing\_assist} (both spellcheck mode and next-word mode)
+\end{itemize}
+
+\section{Discussion}
+\subsection{Summary of Main Findings}
+\begin{itemize}
+    \item \textbf{Task 1:} Unsmoothed higher-order language models suffer from data sparsity and infinite perplexity due to unseen n-grams.
+    \item \textbf{Task 2:} Kneser--Ney is the best smoothing method on this dataset (lowest trigram test perplexity).
+    \item \textbf{Task 3:} MultinomialNB + BoW+Lexicon gives the best macro-F1; Logistic Regression + BoW provides a strong alternative with higher accuracy.
+    \item \textbf{Task 4:} L1 vs L2 comparison was completed; all systems achieved perfect results on the current split, with L1 selected by tie-breaker.
+    \item \textbf{Extra UI:} A single interface now demonstrates spellcheck, n-gram suggestions, sentence delimiting, and typing assistance.
+\end{itemize}
+
+\subsection{Limitations and Future Work}
+\begin{itemize}
+    \item \textbf{Task 3}: Improve neutral-class performance via rebalancing, cost-sensitive learning, or better feature engineering; rerun Logistic Regression with higher \texttt{max\_iter}.
+    \item \textbf{Task 4}: Evaluate on a harder and larger manually annotated set derived from original document boundaries and report variance over multiple random splits.
+    \item \textbf{UI}: Add model-selection controls (e.g., choose smoothing method, choose n-gram order source) and exportable examples/screenshots.
+\end{itemize}
+
+\section{Reproducibility Checklist}
+\begin{itemize}
+    \item Task 1 results: \texttt{outputs/project2/task1\_lm/summary.json}
+    \item Task 2 results: \texttt{outputs/project2/task2\_smoothing/summary.json}
+    \item Task 3 results: \texttt{outputs/project2/task3\_sentiment/summary.json}, \texttt{metrics.csv}, significance CSVs
+    \item Task 4 results: \texttt{outputs/project2/task4\_lr\_sent\_gold\_actual/summary.json}
+    \item UI backend/frontend: \texttt{src/project2\_results\_ui.py}, \texttt{src/project2\_results\_ui.html}
+    \item Aggregated runner: \texttt{scripts/run\_project2.sh}
+\end{itemize}
+
+\end{document}
