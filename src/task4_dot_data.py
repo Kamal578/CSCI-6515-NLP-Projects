@@ -262,3 +262,117 @@ def group_rows_by_doc(rows: list[dict[str, Any]]) -> dict[int, list[dict[str, An
     for doc_idx in out:
         out[doc_idx] = sorted(out[doc_idx], key=lambda r: int(r["char_index"]))
     return dict(out)
+
+
+def build_task4_labels_from_gold_sentences(
+    gold_sentences_path: str,
+    out_labels_csv: str,
+    out_corpus_csv: str,
+    sentences_per_doc: int = 10,
+) -> dict[str, Any]:
+    """
+    Convert a sentence-per-line gold file into:
+      1) a pseudo corpus CSV (grouped into fixed-size pseudo-docs)
+      2) a fully labeled Task 4 dot CSV (one row per dot, gold_label filled)
+
+    This is useful when original source-doc boundaries are unavailable.
+    """
+    if sentences_per_doc < 1:
+        raise ValueError("sentences_per_doc must be >= 1")
+
+    lines = [l.strip() for l in Path(gold_sentences_path).read_text(encoding="utf-8").splitlines() if l.strip()]
+    if not lines:
+        raise ValueError(f"No non-empty sentences found in {gold_sentences_path}")
+
+    pseudo_docs: list[dict[str, Any]] = []
+    label_rows: list[dict[str, Any]] = []
+
+    chunks = [lines[i : i + sentences_per_doc] for i in range(0, len(lines), sentences_per_doc)]
+    for doc_idx, chunk in enumerate(chunks):
+        text_parts: list[str] = []
+        gold_eos_positions: set[int] = set()
+        cursor = 0
+        for s_i, sent in enumerate(chunk):
+            if text_parts:
+                cursor += 1  # account for join space
+            text_parts.append(sent)
+            dot_pos = cursor + sent.rfind(".")
+            if dot_pos >= cursor:
+                gold_eos_positions.add(dot_pos)
+            cursor += len(sent)
+
+        text = " ".join(chunk)
+        pseudo_docs.append({"doc_id": doc_idx, "text": text})
+
+        dot_positions = [i for i, ch in enumerate(text) if ch == "."]
+        for local_idx, char_index in enumerate(dot_positions):
+            preview = dot_candidate_preview_fields(text, char_index)
+            row_id = f"d{doc_idx}_p{char_index}"
+            label_rows.append(
+                {
+                    "row_id": row_id,
+                    "doc_idx": doc_idx,
+                    "doc_id": str(doc_idx),
+                    "char_index": char_index,
+                    "char": ".",
+                    "left_context": preview["left_context"],
+                    "right_context": preview["right_context"],
+                    "window_text": preview["window_text"],
+                    "prev_char": preview["prev_char"],
+                    "next_char": preview["next_char"],
+                    "prev_token": preview["prev_token"],
+                    "next_token": preview["next_token"],
+                    "rule_guess": int(preview["rule_guess"]),
+                    "gold_label": int(char_index in gold_eos_positions),
+                    "annotator_note": "",
+                    "dot_idx_in_doc": local_idx,
+                }
+            )
+
+    # write pseudo corpus CSV
+    out_corpus = Path(out_corpus_csv)
+    out_corpus.parent.mkdir(parents=True, exist_ok=True)
+    with out_corpus.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=["doc_id", "text"])
+        writer.writeheader()
+        for row in pseudo_docs:
+            writer.writerow(row)
+
+    # write labels CSV (same schema as template but gold_label filled)
+    out_labels = Path(out_labels_csv)
+    out_labels.parent.mkdir(parents=True, exist_ok=True)
+    fieldnames = [
+        "row_id",
+        "doc_idx",
+        "doc_id",
+        "char_index",
+        "char",
+        "left_context",
+        "right_context",
+        "window_text",
+        "prev_char",
+        "next_char",
+        "prev_token",
+        "next_token",
+        "rule_guess",
+        "gold_label",
+        "annotator_note",
+        "dot_idx_in_doc",
+    ]
+    with out_labels.open("w", encoding="utf-8", newline="") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames)
+        writer.writeheader()
+        for row in label_rows:
+            writer.writerow(row)
+
+    return {
+        "gold_sentences_path": gold_sentences_path,
+        "out_labels_csv": str(out_labels),
+        "out_corpus_csv": str(out_corpus),
+        "num_gold_sentences": len(lines),
+        "num_pseudo_docs": len(pseudo_docs),
+        "sentences_per_doc": sentences_per_doc,
+        "num_dot_candidates": len(label_rows),
+        "num_eos_dots": int(sum(int(r["gold_label"]) for r in label_rows)),
+        "num_not_eos_dots": int(len(label_rows) - sum(int(r["gold_label"]) for r in label_rows)),
+    }
