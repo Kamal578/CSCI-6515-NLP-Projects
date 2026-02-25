@@ -19,7 +19,10 @@ log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 CORPUS_PATH="${CORPUS_PATH:-data/raw/corpus.csv}"
 TASK1_OUT_DIR="${TASK1_OUT_DIR:-outputs/project2/task1_lm}"
 TASK2_OUT_DIR="${TASK2_OUT_DIR:-outputs/project2/task2_smoothing}"
+TASK3_OUT_DIR="${TASK3_OUT_DIR:-outputs/project2/task3_sentiment}"
 TASK4_OUT_DIR="${TASK4_OUT_DIR:-outputs/project2/task4_lr_sent_gold_actual}"
+TASK3_TRAIN_CSV="${TASK3_TRAIN_CSV:-data/external/train.csv}"
+TASK3_TEST_CSV="${TASK3_TEST_CSV:-data/external/test.csv}"
 
 # Task 4 defaults point to the current checked-in gold labels + pseudo-corpus.
 TASK4_LABELS_CSV="${TASK4_LABELS_CSV:-data/processed/task4_dot_labels_from_sent_gold_actual.csv}"
@@ -46,6 +49,18 @@ log "Task 2: Smoothing comparison (Laplace, Interpolation, Backoff, Kneser-Ney)"
   --corpus_path "$CORPUS_PATH" \
   --out_dir "$TASK2_OUT_DIR"
 
+if [[ -f "$TASK3_TRAIN_CSV" && -f "$TASK3_TEST_CSV" ]]; then
+  log "Task 3: Sentiment classification (NB, BernoulliNB, Logistic) with BoW and lexicon features"
+  "$PYTHON_BIN" -m src.task3_sentiment \
+    --train "$TASK3_TRAIN_CSV" \
+    --test "$TASK3_TEST_CSV" \
+    --output-dir "$TASK3_OUT_DIR"
+else
+  log "Task 3 skipped (missing sentiment CSVs)"
+  [[ -f "$TASK3_TRAIN_CSV" ]] || log "Missing train CSV: $TASK3_TRAIN_CSV"
+  [[ -f "$TASK3_TEST_CSV" ]] || log "Missing test CSV: $TASK3_TEST_CSV"
+fi
+
 if [[ -f "$TASK4_LABELS_CSV" && -f "$TASK4_CORPUS_PATH" ]]; then
   log "Task 4: Logistic regression dot EOS (L1 vs L2) + sentence detection"
   "$PYTHON_BIN" -m src.task4_sentence_lr \
@@ -65,6 +80,7 @@ cat <<EOF
 Project 2 outputs
 - Task 1: $TASK1_OUT_DIR/summary.json
 - Task 2: $TASK2_OUT_DIR/summary.json
+- Task 3: $TASK3_OUT_DIR/summary.json
 - Task 4: $TASK4_OUT_DIR/summary.json
 EOF
 

@@ -236,6 +236,171 @@ What to verify:
 - `backoff` ranked **#2**, and was relatively close to Kneser-Ney.
 - `laplace` performed worst by a large margin on this dataset.
 
+## Task 3: Sentiment Classification (Naive Bayes, Binary Naive Bayes, Logistic Regression)
+
+### Goal
+- Compare three classifiers on an Azerbaijani sentiment dataset:
+  - Multinomial Naive Bayes
+  - Bernoulli Naive Bayes (binary Naive Bayes)
+  - Logistic Regression
+- Compare feature extraction variants:
+  - Bag-of-Words (BoW)
+  - Sentiment lexicon features
+  - BoW + sentiment lexicon features
+- Use statistical significance testing (McNemar exact test with Holm-Bonferroni correction).
+- Determine which classifier/feature combination is best and analyze tradeoffs.
+
+### Dataset Used
+- Dataset: `hajili/azerbaijani_review_sentiment_classification`
+- Local files used:
+  - `data/external/train.csv`
+  - `data/external/test.csv`
+- Columns used:
+  - text: `content`
+  - score: `score`
+
+### Label Mapping (this run)
+- Mode: `sentiment3`
+- Mapping:
+  - `1-2` -> `negative`
+  - `3` -> `neutral`
+  - `4-5` -> `positive`
+
+### Features
+- `bow`:
+  - CountVectorizer with custom Azerbaijani-oriented tokenizer/preprocessing (legacy-compatible)
+  - `ngram_range=(1,2)`
+  - `min_df=2`
+  - `max_features=60000`
+- `lexicon`:
+  - Sentiment lexicon induced from training data (positive vs negative rows only)
+  - Top `500` positive + top `500` negative tokens by polarity log-probability difference
+  - Aggregated document-level lexicon statistics (counts, unique counts, weighted sums, ratios, coverage)
+- `bow+lexicon`:
+  - Sparse concatenation of BoW features and lexicon aggregate features
+
+### How to Run (Task 3)
+
+#### Main command (new structured runner)
+```bash
+.venv/bin/python -m src.task3_sentiment \
+  --train data/external/train.csv \
+  --test data/external/test.csv \
+  --output-dir outputs/project2/task3_sentiment
+```
+
+#### Backward-compatible command (old filename still works)
+```bash
+.venv/bin/python -m src.project2_task3_experiment \
+  --train data/external/train.csv \
+  --test data/external/test.csv \
+  --output-dir outputs/project2/task3_sentiment
+```
+
+### Task 3 Output Files
+- `outputs/project2/task3_sentiment/summary.json` — run config, dataset stats, best models
+- `outputs/project2/task3_sentiment/metrics.csv` — metrics for all 9 experiments
+- `outputs/project2/task3_sentiment/significance_within_feature_set.csv` — pairwise McNemar tests within each feature set
+- `outputs/project2/task3_sentiment/significance_top_vs_others.csv` — top overall model vs all other experiments
+- `outputs/project2/task3_sentiment/classification_reports.txt` — full per-class reports
+- `outputs/project2/task3_sentiment/confusion_matrices.json` — confusion matrices for all experiments
+- `outputs/project2/task3_sentiment/lexicon_preview.json` — induced lexicon preview + feature metadata
+- `outputs/project2/task3_sentiment/test_predictions.csv` — per-example predictions from all experiments
+
+### How to Check Results (Task 3)
+```bash
+cat outputs/project2/task3_sentiment/summary.json
+head -20 outputs/project2/task3_sentiment/metrics.csv
+cat outputs/project2/task3_sentiment/significance_within_feature_set.csv
+cat outputs/project2/task3_sentiment/significance_top_vs_others.csv
+```
+
+### Report Results (Task 3, filled from `outputs/project2/task3_sentiment/*`)
+
+#### Dataset Summary
+- Train size: `127,537`
+- Test size: `31,885`
+- Train label distribution:
+  - `positive`: `108,378`
+  - `negative`: `16,396`
+  - `neutral`: `2,763`
+- Test label distribution:
+  - `positive`: `27,136`
+  - `negative`: `4,079`
+  - `neutral`: `670`
+
+#### Feature Metadata
+- BoW vocabulary size: `48,874`
+- Induced sentiment lexicon size: `1,000` tokens
+- Lexicon aggregate feature count: `11`
+- Combined feature count (`bow+lexicon`): `48,885`
+
+#### All Model/Feature Combinations (sorted by macro-F1)
+| Rank | Classifier | Feature Set | Accuracy | Macro-F1 | Weighted-F1 |
+|---:|---|---|---:|---:|---:|
+| 1 | MultinomialNB | `bow+lexicon` | `0.8650` | `0.5590` | `0.8732` |
+| 2 | Logistic Regression | `bow` | `0.8998` | `0.5523` | `0.8884` |
+| 3 | MultinomialNB | `bow` | `0.9006` | `0.5415` | `0.8922` |
+| 4 | Logistic Regression | `bow+lexicon` | `0.8985` | `0.5342` | `0.8836` |
+| 5 | BernoulliNB | `bow+lexicon` | `0.8796` | `0.5300` | `0.8753` |
+| 6 | BernoulliNB | `bow` | `0.8676` | `0.5049` | `0.8607` |
+| 7 | MultinomialNB | `lexicon` | `0.8795` | `0.4694` | `0.8540` |
+| 8 | Logistic Regression | `lexicon` | `0.8828` | `0.4650` | `0.8552` |
+| 9 | BernoulliNB | `lexicon` | `0.5784` | `0.3526` | `0.6376` |
+
+#### Best Feature Set per Classifier
+- MultinomialNB: `bow+lexicon` (`macro-F1 = 0.5590`)
+- Logistic Regression: `bow` (`macro-F1 = 0.5523`)
+- BernoulliNB: `bow+lexicon` (`macro-F1 = 0.5300`)
+
+#### Best Classifier per Feature Set
+- `bow`: Logistic Regression (`macro-F1 = 0.5523`)
+- `lexicon`: MultinomialNB (`macro-F1 = 0.4694`)
+- `bow+lexicon`: MultinomialNB (`macro-F1 = 0.5590`)
+
+#### Statistical Significance Testing (McNemar exact + Holm-Bonferroni)
+
+Within the same feature set:
+- `bow`:
+  - MultinomialNB vs Logistic Regression: **not significant** (`p=0.5143`)
+  - BernoulliNB is significantly worse than both (`p << 0.001`)
+- `lexicon`:
+  - All pairwise differences are significant after Holm correction
+  - Logistic Regression significantly outperforms MultinomialNB on exact-match correctness (`p≈3.89e-25`) in this feature-only setting
+- `bow+lexicon`:
+  - All pairwise differences are significant after Holm correction
+  - MultinomialNB significantly outperforms both Logistic Regression and BernoulliNB
+
+Top overall (`multinomial_nb__bow+lexicon`) vs all others:
+- Statistically significantly better than all experiments **except** `bernoulli_nb__bow` (`p=0.1321`, not significant after Holm correction)
+- Notably better than:
+  - `logistic_regression__bow` (`p≈1.35e-79`)
+  - `multinomial_nb__bow` (`p≈3.85e-131`)
+  - `logistic_regression__bow+lexicon` (`p≈5.19e-74`)
+
+### Task 3 Interpretation / Analysis (this run)
+- The dataset is strongly class-imbalanced toward `positive`, so **macro-F1** is the right primary metric for comparing classifiers.
+- The best overall model by macro-F1 is **Multinomial Naive Bayes with BoW + lexicon features**.
+- Logistic Regression with plain BoW achieves the best accuracy among the top models, but lower macro-F1 than MultinomialNB + BoW+lexicon.
+- Lexicon-only features are useful but clearly weaker than BoW or BoW+lexicon, especially for `neutral`.
+- The `neutral` class remains hard across all models (very low `f1_neutral`), likely due to:
+  - heavy class imbalance
+  - short/noisy review text
+  - label ambiguity around score `3`
+
+### Which Classifier Is Better? (Task 3 conclusion)
+- **Overall winner for this assignment setup**: `Multinomial Naive Bayes + BoW + sentiment lexicon`
+  - Best **macro-F1** (`0.5590`)
+  - Statistically significant improvements over most alternatives under McNemar exact tests (with Holm correction)
+- **Strong runner-up**: `Logistic Regression + BoW`
+  - Slightly lower macro-F1 (`0.5523`)
+  - Higher accuracy (`0.8998`) due to majority-class performance
+- **Binary Naive Bayes (BernoulliNB)** performs reasonably with `bow+lexicon`, but is not the best model on this dataset/configuration.
+
+### Notes / Caveats
+- Logistic Regression emitted convergence warnings (`max_iter` reached) for some feature sets with current settings (`solver=saga`, `max_iter=1500`).
+- The run completed successfully and produced outputs, but you may improve stability by increasing `max_iter` (e.g., `3000+`) and rerunning.
+
 ## Task 4: Logistic Regression for Dot-Based Sentence Boundary Detection (L1 vs L2)
 
 ### Goal
