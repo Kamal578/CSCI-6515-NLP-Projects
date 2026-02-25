@@ -9,3 +9,4 @@ langid
 flask
 scikit-learn
 langid
+pytest
