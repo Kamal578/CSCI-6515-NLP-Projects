@@ -8,10 +8,10 @@ import numpy as np
 import pandas as pd
 from sklearn.metrics import classification_report
 
-from .task3_sentiment_data import load_sentiment_dataset
-from .task3_sentiment_features import build_feature_matrices, build_sentiment_lexicon
-from .task3_sentiment_models import fit_predict, get_models
-from .task3_sentiment_stats import compute_metrics, confusion_as_list, holm_bonferroni, mcnemar_exact
+from .project2_task3_sentiment_data import load_sentiment_dataset
+from .project2_task3_sentiment_features import build_feature_matrices, build_sentiment_lexicon
+from .project2_task3_sentiment_models import fit_predict, get_models
+from .project2_task3_sentiment_stats import compute_metrics, confusion_as_list, holm_bonferroni, mcnemar_exact
 
 
 def parse_args() -> argparse.Namespace:

@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 
-from .task4_dot_data import export_dot_label_template
+from .project2_task4_dot_data import export_dot_label_template
 
 
 def main() -> None:

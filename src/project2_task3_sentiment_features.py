@@ -7,7 +7,7 @@ import pandas as pd
 from scipy.sparse import csr_matrix, hstack
 from sklearn.feature_extraction.text import CountVectorizer
 
-from .task3_sentiment_preprocess import legacy_tokenize
+from .project2_task3_sentiment_preprocess import legacy_tokenize
 
 
 @dataclass

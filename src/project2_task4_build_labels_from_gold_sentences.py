@@ -3,7 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 
-from .task4_dot_data import build_task4_labels_from_gold_sentences
+from .project2_task4_dot_data import build_task4_labels_from_gold_sentences
 
 
 def main() -> None:

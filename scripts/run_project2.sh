@@ -40,18 +40,18 @@ log "Using Python: $PYTHON_BIN"
 log "Corpus: $CORPUS_PATH"
 
 log "Task 1: Unigram/Bigram/Trigram LM + perplexity (MLE baseline)"
-"$PYTHON_BIN" -m src.task1_lm \
+"$PYTHON_BIN" -m src.project2_task1_lm \
   --corpus_path "$CORPUS_PATH" \
   --out_dir "$TASK1_OUT_DIR"
 
 log "Task 2: Smoothing comparison (Laplace, Interpolation, Backoff, Kneser-Ney)"
-"$PYTHON_BIN" -m src.task2_smoothing \
+"$PYTHON_BIN" -m src.project2_task2_smoothing \
   --corpus_path "$CORPUS_PATH" \
   --out_dir "$TASK2_OUT_DIR"
 
 if [[ -f "$TASK3_TRAIN_CSV" && -f "$TASK3_TEST_CSV" ]]; then
   log "Task 3: Sentiment classification (NB, BernoulliNB, Logistic) with BoW and lexicon features"
-  "$PYTHON_BIN" -m src.task3_sentiment \
+  "$PYTHON_BIN" -m src.project2_task3_sentiment \
     --train "$TASK3_TRAIN_CSV" \
     --test "$TASK3_TEST_CSV" \
     --output-dir "$TASK3_OUT_DIR"
@@ -63,7 +63,7 @@ fi
 
 if [[ -f "$TASK4_LABELS_CSV" && -f "$TASK4_CORPUS_PATH" ]]; then
   log "Task 4: Logistic regression dot EOS (L1 vs L2) + sentence detection"
-  "$PYTHON_BIN" -m src.task4_sentence_lr \
+  "$PYTHON_BIN" -m src.project2_task4_sentence_lr \
     --labels_csv "$TASK4_LABELS_CSV" \
     --corpus_path "$TASK4_CORPUS_PATH" \
     --compare_rule_baseline \

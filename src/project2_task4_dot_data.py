@@ -10,7 +10,7 @@ from typing import Any
 import pandas as pd
 
 from .load_data import load_corpus_csv
-from .task4_dot_features import dot_candidate_preview_fields
+from .project2_task4_dot_features import dot_candidate_preview_fields
 
 
 @dataclass

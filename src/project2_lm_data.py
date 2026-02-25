@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Iterable
 
 from .load_data import load_corpus_csv
-from .ngram_lm import END_TOKEN, UNK_TOKEN, build_train_vocab, map_sentence_to_vocab
+from .project2_ngram_lm import END_TOKEN, UNK_TOKEN, build_train_vocab, map_sentence_to_vocab
 from .sentence_segment import sentence_segment
 from .tokenize import tokenize
 

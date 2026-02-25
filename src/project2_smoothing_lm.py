@@ -5,7 +5,7 @@ from collections import Counter, defaultdict
 from dataclasses import dataclass
 from typing import Iterable, Sequence
 
-from .ngram_lm import EvalStats, iter_ngrams, pad_sentence
+from .project2_ngram_lm import EvalStats, iter_ngrams, pad_sentence
 
 
 @dataclass

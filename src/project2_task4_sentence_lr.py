@@ -9,9 +9,9 @@ from typing import Any
 import numpy as np
 
 from .load_data import load_corpus_csv
-from .task4_dot_data import group_rows_by_doc, load_labeled_dot_rows, split_labeled_rows_by_doc
-from .task4_dot_features import WINDOW_SIZE, CHAR_WINDOW_RADIUS, extract_features_from_row, rule_guess_eos_for_dot
-from .task4_dot_model import (
+from .project2_task4_dot_data import group_rows_by_doc, load_labeled_dot_rows, split_labeled_rows_by_doc
+from .project2_task4_dot_features import WINDOW_SIZE, CHAR_WINDOW_RADIUS, extract_features_from_row, rule_guess_eos_for_dot
+from .project2_task4_dot_model import (
     compute_dot_metrics,
     fit_dot_model,
     predict_dot_labels,
@@ -19,7 +19,7 @@ from .task4_dot_model import (
     save_model_artifact,
     tune_lr_models,
 )
-from .task4_sentence_utils import split_on_boundaries
+from .project2_task4_sentence_utils import split_on_boundaries
 
 
 def _load_corpus_text_lookup(corpus_path: str, text_column: str = "text") -> dict[int, str]:

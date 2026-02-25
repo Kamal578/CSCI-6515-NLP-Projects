@@ -8,9 +8,9 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable, Iterable
 
-from .lm_data import prepare_lm_splits
-from .ngram_lm import UNK_TOKEN, build_train_vocab, map_sentence_to_vocab
-from .smoothing_lm import (
+from .project2_lm_data import prepare_lm_splits
+from .project2_ngram_lm import UNK_TOKEN, build_train_vocab, map_sentence_to_vocab
+from .project2_smoothing_lm import (
     NgramCountStore,
     make_backoff_model,
     make_interpolation_model,

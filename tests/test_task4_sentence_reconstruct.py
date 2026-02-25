@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.task4_sentence_utils import split_on_boundaries
+from src.project2_task4_sentence_utils import split_on_boundaries
 
 
 def test_split_on_predicted_dot_boundaries_preserves_order():

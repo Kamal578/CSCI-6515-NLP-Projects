@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 
-from src.smoothing_lm import (
+from src.project2_smoothing_lm import (
     DiscountBackoffNgramModel,
     InterpolationNgramModel,
     KneserNeyNgramModel,

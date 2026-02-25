@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from src.task4_dot_features import extract_dot_features
+from src.project2_task4_dot_features import extract_dot_features
 
 
 def test_decimal_dot_feature_detected():

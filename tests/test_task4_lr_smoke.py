@@ -7,7 +7,7 @@ import pytest
 pytest.importorskip("sklearn")
 pytest.importorskip("joblib")
 
-from src.task4_dot_model import fit_dot_model, predict_dot_labels, save_model_artifact, load_model_artifact
+from src.project2_task4_dot_model import fit_dot_model, predict_dot_labels, save_model_artifact, load_model_artifact
 
 
 def test_lr_smoke_train_predict_and_save(tmp_path: Path):

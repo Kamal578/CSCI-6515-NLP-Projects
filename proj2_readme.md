@@ -28,7 +28,7 @@ This file tracks implementation and report-ready notes for Project 2.
 
 #### Full run (dataset)
 ```bash
-.venv/bin/python -m src.task1_lm \
+.venv/bin/python -m src.project2_task1_lm \
   --corpus_path data/raw/corpus.csv \
   --out_dir outputs/project2/task1_lm \
   --seed 42 \
@@ -37,7 +37,7 @@ This file tracks implementation and report-ready notes for Project 2.
 
 #### Quick smoke test (faster)
 ```bash
-.venv/bin/python -m src.task1_lm \
+.venv/bin/python -m src.project2_task1_lm \
   --corpus_path data/raw/corpus.csv \
   --out_dir outputs/project2/task1_lm_debug \
   --max_docs 2000 \
@@ -153,7 +153,7 @@ Use this as a starting point in the final report:
 
 #### Full run (recommended)
 ```bash
-.venv/bin/python -m src.task2_smoothing \
+.venv/bin/python -m src.project2_task2_smoothing \
   --corpus_path data/raw/corpus.csv \
   --text_column text \
   --test_ratio 0.2 \
@@ -169,7 +169,7 @@ Use this as a starting point in the final report:
 
 #### Smoke test (fast)
 ```bash
-.venv/bin/python -m src.task2_smoothing \
+.venv/bin/python -m src.project2_task2_smoothing \
   --max_docs 200 \
   --disable_grid_search \
   --out_dir outputs/project2/task2_smoothing_smoke
@@ -283,7 +283,7 @@ What to verify:
 
 #### Main command (new structured runner)
 ```bash
-.venv/bin/python -m src.task3_sentiment \
+.venv/bin/python -m src.project2_task3_sentiment \
   --train data/external/train.csv \
   --test data/external/test.csv \
   --output-dir outputs/project2/task3_sentiment
@@ -425,7 +425,7 @@ Note for this run:
 ### Alternative Task 4 Workflow (using sentence-per-line gold)
 If you have manually corrected sentence-per-line gold (like `data/processed/sent_gold_actual.txt`) but not a dot-label CSV:
 ```bash
-.venv/bin/python -m src.task4_build_labels_from_gold_sentences \
+.venv/bin/python -m src.project2_task4_build_labels_from_gold_sentences \
   --gold_sentences data/processed/sent_gold_actual.txt \
   --out_labels_csv data/processed/task4_dot_labels_from_sent_gold_actual.csv \
   --out_corpus_csv data/processed/task4_sent_gold_actual_pseudo_corpus.csv \
@@ -433,7 +433,7 @@ If you have manually corrected sentence-per-line gold (like `data/processed/sent
 ```
 Then train/evaluate using those outputs:
 ```bash
-.venv/bin/python -m src.task4_sentence_lr \
+.venv/bin/python -m src.project2_task4_sentence_lr \
   --labels_csv data/processed/task4_dot_labels_from_sent_gold_actual.csv \
   --corpus_path data/processed/task4_sent_gold_actual_pseudo_corpus.csv \
   --text_column text \
@@ -444,7 +444,7 @@ Then train/evaluate using those outputs:
 
 ### Step 1: Export Manual Label Template
 ```bash
-.venv/bin/python -m src.task4_label_export \
+.venv/bin/python -m src.project2_task4_label_export \
   --corpus_path data/raw/corpus.csv \
   --text_column text \
   --max_docs 200 \
@@ -458,7 +458,7 @@ Then manually fill `gold_label` (`1`=EOS, `0`=NOT_EOS) and save as:
 
 ### Step 2: Train + Evaluate L1/L2 Logistic Regression
 ```bash
-.venv/bin/python -m src.task4_sentence_lr \
+.venv/bin/python -m src.project2_task4_sentence_lr \
   --labels_csv data/processed/task4_dot_labels.csv \
   --corpus_path data/raw/corpus.csv \
   --text_column text \
