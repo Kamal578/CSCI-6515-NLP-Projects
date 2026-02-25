@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import json
 from pathlib import Path
 from functools import lru_cache
@@ -24,6 +25,7 @@ def get_vocab(corpus_path: str, min_freq: int, min_len: int, max_upper_ratio: fl
     )
 
 
+@lru_cache(maxsize=8)
 def load_weights(confusion_path: str | None):
     if not confusion_path:
         return None
@@ -31,7 +33,7 @@ def load_weights(confusion_path: str | None):
     if not p.exists():
         return None
     raw = json.loads(p.read_text(encoding="utf-8"))
-    return {eval(k): float(v) for k, v in raw.get("weights", {}).items()}
+    return {ast.literal_eval(k): float(v) for k, v in raw.get("weights", {}).items()}
 
 
 @app.route("/")

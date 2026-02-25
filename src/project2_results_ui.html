@@ -290,6 +290,22 @@
       padding: 10px 11px;
       font-size: 0.92rem;
     }
+    .toggle-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 12px;
+      color: var(--muted);
+      font-size: 0.92rem;
+    }
+    .toggle-row label {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      cursor: pointer;
+      color: var(--ink);
+      font-weight: 600;
+    }
 
     .kbd {
       font-family: "IBM Plex Mono", Consolas, monospace;
@@ -363,6 +379,9 @@
               <input type="text" id="sharedCorpusPathSpell" value="data/raw/corpus.csv" aria-label="Corpus path" />
               <input type="text" id="spellInput" placeholder="Type a word, e.g. kompyuter" aria-label="Word to spellcheck" />
             </div>
+            <div class="toggle-row">
+              <label><input type="checkbox" id="spellUseConfusion" /> Use weighted confusion (slower, often better ranking)</label>
+            </div>
             <div class="row">
               <div class="muted">Press <span class="kbd">Enter</span> or click to fetch top suggestions.</div>
               <button class="btn" id="spellBtn">Suggest</button>
@@ -419,6 +438,10 @@
               <input type="text" id="sharedCorpusPathTyping" value="data/raw/corpus.csv" aria-label="Corpus path" />
               <input type="text" id="typingTextColumn" value="text" aria-label="Text column" />
             </div>
+            <div class="toggle-row">
+              <label><input type="checkbox" id="typingUseConfusion" /> Use weighted confusion for typing spell suggestions</label>
+              <span>Keep off for lower latency while typing.</span>
+            </div>
             <textarea id="typingInput" placeholder="Start typing here... (real-time suggestions appear below)"></textarea>
           </div>
           <div class="results" id="typingResults"></div>
@@ -431,16 +454,18 @@
     const state = {
       typingTimer: null,
       ngramCacheHintShown: false,
-      typingAssistRequestSeq: 0,
+      typingRequestSeq: 0,
+      typingAbortController: null,
     };
 
     function $(id) { return document.getElementById(id); }
 
-    async function postJSON(url, payload) {
+    async function postJSON(url, payload, opts = {}) {
       const res = await fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
+        signal: opts.signal,
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data.error || JSON.stringify(data) || `HTTP ${res.status}`);
@@ -500,6 +525,14 @@
       btn.addEventListener("click", () => activateTab(btn.dataset.tab));
     });
 
+    function syncConfusionToggles(sourceId, targetId) {
+      const src = $(sourceId);
+      const dst = $(targetId);
+      src.addEventListener("change", () => { dst.checked = src.checked; });
+    }
+    syncConfusionToggles("spellUseConfusion", "typingUseConfusion");
+    syncConfusionToggles("typingUseConfusion", "spellUseConfusion");
+
     // Spellchecker tab
     async function runSpellchecker() {
       const word = $("spellInput").value.trim();
@@ -512,7 +545,11 @@
       $("spellBtn").disabled = true;
       out.textContent = "Loading suggestions...";
       try {
-        const data = await postJSON("/api/spellchecker", { word, corpus_path: corpusPath });
+        const data = await postJSON("/api/spellchecker", {
+          word,
+          corpus_path: corpusPath,
+          use_confusion: $("spellUseConfusion").checked,
+        });
         out.innerHTML = `
           <div class="muted" style="margin-bottom:8px;">
             Vocab size: ${data.vocab_size ?? "?"} | weighted confusion: ${data.used_confusion ? "yes" : "no"}
@@ -593,27 +630,29 @@
     // Typing assistance tab (real-time)
     function scheduleTypingAssist() {
       clearTimeout(state.typingTimer);
-      state.typingTimer = setTimeout(runTypingAssist, 380);
+      state.typingTimer = setTimeout(runTypingAssist, 260);
     }
 
     async function runTypingAssist() {
       const out = $("typingResults");
       const text = $("typingInput").value;
-      const requestSeq = ++state.typingAssistRequestSeq;
       const payload = {
         text,
         corpus_path: $("sharedCorpusPathTyping").value.trim() || "data/raw/corpus.csv",
         text_column: $("typingTextColumn").value.trim() || "text",
+        use_confusion: $("typingUseConfusion").checked,
       };
       if (!text) {
         out.innerHTML = `<div class="empty">Start typing to see suggestions.</div>`;
         return;
       }
       out.innerHTML = `<div class="muted">Analyzing input...</div>`;
+      const requestSeq = ++state.typingRequestSeq;
+      if (state.typingAbortController) state.typingAbortController.abort();
+      state.typingAbortController = new AbortController();
       try {
-        const data = await postJSON("/api/typing_assist", payload);
-        const isStale = requestSeq !== state.typingAssistRequestSeq || $("typingInput").value !== text;
-        if (isStale) return;
+        const data = await postJSON("/api/typing_assist", payload, { signal: state.typingAbortController.signal });
+        if (requestSeq !== state.typingRequestSeq) return;
         if (data.mode === "empty") {
           out.innerHTML = `<div class="empty">${esc(data.message || "No suggestions yet.")}</div>`;
           return;
@@ -639,8 +678,7 @@
         }
         out.innerHTML = `<div class="empty">Unhandled mode.</div>`;
       } catch (err) {
-        const isStale = requestSeq !== state.typingAssistRequestSeq || $("typingInput").value !== text;
-        if (isStale) return;
+        if (err.name === "AbortError") return;
         out.innerHTML = `<div class="error">Error: ${esc(err.message)}</div>`;
       }
     }
@@ -654,7 +692,7 @@
         const data = await res.json();
         if (data.corpus_exists) {
           dot.className = "dot ok";
-          text.textContent = `Backend ready • corpus found • spell vocab cached=${data.spell_vocab_cached ? "yes" : "no"} • n-gram cache loaded=${data.ngram_index_cached ? "yes" : "no"}`;
+          text.textContent = `Backend ready • corpus found • confusion file=${data.confusion_exists ? "yes" : "no"} • spell vocab cached=${data.spell_vocab_cached ? "yes" : "no"} • n-gram cache loaded=${data.ngram_index_cached ? "yes" : "no"}`;
         } else {
           dot.className = "dot bad";
           text.textContent = `Backend reachable but corpus file was not found. Check data/raw/corpus.csv or tab corpus paths.`;

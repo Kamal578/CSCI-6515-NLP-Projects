@@ -18,6 +18,7 @@ from .tokenize import tokenize
 
 app = Flask(__name__, static_folder=None)
 WORD_TAIL_RE = re.compile(r"[\p{L}\p{N}_'’\-]+$", re.UNICODE)
+DEFAULT_CONFUSION_PATH = "outputs/spellcheck/confusion.json"
 
 
 @dataclass
@@ -91,6 +92,14 @@ def _extract_current_partial_word(text: str) -> str:
     return m.group(0) if m else ""
 
 
+def _as_bool(value, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
 def _ngram_suggestions_payload(text: str, corpus_path: str, text_column: str, max_docs_ngram: int | None = None) -> dict:
     # Use a consistent positional call style so lru_cache keys are reused.
     idx = get_ngram_index(corpus_path, text_column, max_docs_ngram)
@@ -136,13 +145,14 @@ def _ngram_suggestions_payload(text: str, corpus_path: str, text_column: str, ma
 def _cached_spell_candidates(
     word: str,
     corpus_path: str,
+    confusion_path: str | None,
     top_k: int,
     max_dist: int,
     max_variant_edits: int,
     max_variant_candidates: int,
 ) -> tuple[tuple[str, int], ...]:
     vocab = get_vocab(corpus_path, 2, 3, 0.6)
-    weights = load_weights("outputs/spellcheck/confusion.json")
+    weights = load_weights(confusion_path)
     cands, _ = expand_suggest(
         word=word,
         vocab=vocab,
@@ -159,21 +169,25 @@ def _cached_spell_candidates(
 def _spell_suggestions_payload(
     word: str,
     corpus_path: str,
+    use_confusion: bool = False,
+    confusion_path: str = DEFAULT_CONFUSION_PATH,
     top_k: int = 3,
     max_dist: int = 2,
     max_variant_edits: int = 3,
     max_variant_candidates: int = 80,
 ) -> dict:
+    resolved_confusion_path = confusion_path if use_confusion else None
     cands = _cached_spell_candidates(
         word=word.lower(),
         corpus_path=corpus_path,
+        confusion_path=resolved_confusion_path,
         top_k=top_k,
         max_dist=max_dist,
         max_variant_edits=max_variant_edits,
         max_variant_candidates=max_variant_candidates,
     )
     vocab = get_vocab(corpus_path, 2, 3, 0.6)
-    weights = load_weights("outputs/spellcheck/confusion.json")
+    weights = load_weights(resolved_confusion_path)
     return {
         "word": word,
         "candidates": [{"token": w, "freq": int(freq)} for w, freq in cands],
@@ -192,12 +206,16 @@ def api_spellchecker():
     data = request.get_json(silent=True) or {}
     word = str(data.get("word", "")).strip()
     corpus_path = str(data.get("corpus_path", "data/raw/corpus.csv"))
+    use_confusion = _as_bool(data.get("use_confusion"), default=False)
+    confusion_path = str(data.get("confusion_path", DEFAULT_CONFUSION_PATH))
     if not word:
         return jsonify({"error": "word is required"}), 400
     return jsonify(
         _spell_suggestions_payload(
             word=word,
             corpus_path=corpus_path,
+            use_confusion=use_confusion,
+            confusion_path=confusion_path,
             top_k=5,
             max_dist=2,
             max_variant_edits=3,
@@ -238,6 +256,8 @@ def api_typing_assist():
     text = str(data.get("text", ""))
     corpus_path = str(data.get("corpus_path", "data/raw/corpus.csv"))
     text_column = str(data.get("text_column", "text"))
+    use_confusion = _as_bool(data.get("use_confusion"), default=False)
+    confusion_path = str(data.get("confusion_path", DEFAULT_CONFUSION_PATH))
     max_docs_ngram = data.get("max_docs_ngram", None)
     max_docs_ngram = int(max_docs_ngram) if max_docs_ngram not in (None, "", "null") else None
 
@@ -274,6 +294,8 @@ def api_typing_assist():
     spell = _spell_suggestions_payload(
         word=partial,
         corpus_path=corpus_path,
+        use_confusion=use_confusion,
+        confusion_path=confusion_path,
         top_k=3,
         max_dist=1 if len(partial) <= 4 else 2,
         max_variant_edits=1,
@@ -294,12 +316,14 @@ def api_typing_assist():
 def api_ui_status():
     corpus_path = request.args.get("corpus_path", "data/raw/corpus.csv")
     corpus_exists = Path(corpus_path).exists()
+    confusion_exists = Path(DEFAULT_CONFUSION_PATH).exists()
     spell_cache_info = get_vocab.cache_info()
     spell_vocab_cached = bool(spell_cache_info.currsize)
 
     return jsonify(
         {
             "corpus_exists": corpus_exists,
+            "confusion_exists": confusion_exists,
             "spell_vocab_cached": spell_vocab_cached,
             "spell_cache_info": {
                 "hits": spell_cache_info.hits,
