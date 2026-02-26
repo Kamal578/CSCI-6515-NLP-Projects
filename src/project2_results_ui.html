@@ -368,6 +368,10 @@
           <span class="title">Typing Assistance</span>
           <span class="sub">Real-time next-word or spell suggestions</span>
         </button>
+        <button class="tab" data-tab="typing-kn">
+          <span class="title">Typing Assistance (KN)</span>
+          <span class="sub">Real-time next-word with Kneser-Ney smoothing</span>
+        </button>
       </nav>
 
       <main class="panel">
@@ -446,6 +450,31 @@
           </div>
           <div class="results" id="typingResults"></div>
         </section>
+
+        <section class="tab-panel" id="panel-typing-kn">
+          <h2>Typing Assistance (Kneser-Ney Smoothed)</h2>
+          <p class="hint">
+            Same interaction as the typing assistant tab:
+            <br />• If the last character is a space: show next-word suggestions using Kneser-Ney smoothed 1/2/3-gram scoring
+            <br />• Otherwise: show top 3 spellcheck suggestions for the current partial word.
+          </p>
+          <div class="controls">
+            <div class="helper-grid">
+              <input type="text" id="sharedCorpusPathTypingKn" value="data/raw/corpus.csv" aria-label="Corpus path" />
+              <input type="text" id="typingKnTextColumn" value="text" aria-label="Text column" />
+            </div>
+            <div class="helper-grid">
+              <input type="text" id="typingKnMaxDocs" placeholder="Optional max docs for KN index (e.g. 5000)" aria-label="Optional max docs for KN index" />
+              <div class="muted">Leave empty to use the full corpus (slower first load).</div>
+            </div>
+            <div class="toggle-row">
+              <label><input type="checkbox" id="typingKnUseConfusion" /> Use weighted confusion for typing spell suggestions</label>
+              <span>Spell mode only; next-word mode uses Kneser-Ney smoothing.</span>
+            </div>
+            <textarea id="typingKnInput" placeholder="Start typing here... (Kneser-Ney suggestions appear below)"></textarea>
+          </div>
+          <div class="results" id="typingKnResults"></div>
+        </section>
       </main>
     </div>
   </div>
@@ -456,6 +485,9 @@
       ngramCacheHintShown: false,
       typingRequestSeq: 0,
       typingAbortController: null,
+      typingKnTimer: null,
+      typingKnRequestSeq: 0,
+      typingKnAbortController: null,
     };
 
     function $(id) { return document.getElementById(id); }
@@ -482,8 +514,14 @@
 
     function renderSuggestionList(items, emptyText = "No suggestions.") {
       if (!items || !items.length) return `<div class="empty">${esc(emptyText)}</div>`;
+      const metaText = (i) => {
+        if (typeof i.prob === "number" && Number.isFinite(i.prob)) return `p=${i.prob.toExponential(3)}`;
+        if (i.count != null) return `count=${i.count}`;
+        if (i.freq != null) return `freq=${i.freq}`;
+        return "";
+      };
       return `<ul class="list">${
-        items.map(i => `<li><span class="mono">${esc(i.token)}</span><span class="muted">count=${i.count ?? i.freq ?? "?"}</span></li>`).join("")
+        items.map(i => `<li><span class="mono">${esc(i.token)}</span><span class="muted">${esc(metaText(i) || "?")}</span></li>`).join("")
       }</ul>`;
     }
 
@@ -525,13 +563,16 @@
       btn.addEventListener("click", () => activateTab(btn.dataset.tab));
     });
 
-    function syncConfusionToggles(sourceId, targetId) {
-      const src = $(sourceId);
-      const dst = $(targetId);
-      src.addEventListener("change", () => { dst.checked = src.checked; });
+    function syncConfusionToggleGroup(ids) {
+      ids.forEach((id) => {
+        $(id).addEventListener("change", () => {
+          ids.forEach((otherId) => {
+            if (otherId !== id) $(otherId).checked = $(id).checked;
+          });
+        });
+      });
     }
-    syncConfusionToggles("spellUseConfusion", "typingUseConfusion");
-    syncConfusionToggles("typingUseConfusion", "spellUseConfusion");
+    syncConfusionToggleGroup(["spellUseConfusion", "typingUseConfusion", "typingKnUseConfusion"]);
 
     // Spellchecker tab
     async function runSpellchecker() {
@@ -684,6 +725,66 @@
     }
     $("typingInput").addEventListener("input", scheduleTypingAssist);
 
+    // Typing assistance tab (Kneser-Ney smoothed next-word suggestions)
+    function scheduleTypingAssistKn() {
+      clearTimeout(state.typingKnTimer);
+      state.typingKnTimer = setTimeout(runTypingAssistKn, 260);
+    }
+
+    async function runTypingAssistKn() {
+      const out = $("typingKnResults");
+      const text = $("typingKnInput").value;
+      const payload = {
+        text,
+        corpus_path: $("sharedCorpusPathTypingKn").value.trim() || "data/raw/corpus.csv",
+        text_column: $("typingKnTextColumn").value.trim() || "text",
+        max_docs_ngram: $("typingKnMaxDocs").value.trim() || null,
+        use_confusion: $("typingKnUseConfusion").checked,
+      };
+      if (!text) {
+        out.innerHTML = `<div class="empty">Start typing to see suggestions.</div>`;
+        return;
+      }
+      out.innerHTML = `<div class="muted">Analyzing input (Kneser-Ney mode)...</div>`;
+      const requestSeq = ++state.typingKnRequestSeq;
+      if (state.typingKnAbortController) state.typingKnAbortController.abort();
+      state.typingKnAbortController = new AbortController();
+      try {
+        const data = await postJSON("/api/typing_assist_kn", payload, { signal: state.typingKnAbortController.signal });
+        if (requestSeq !== state.typingKnRequestSeq) return;
+        if (data.mode === "empty") {
+          out.innerHTML = `<div class="empty">${esc(data.message || "No suggestions yet.")}</div>`;
+          return;
+        }
+        if (data.mode === "spellcheck") {
+          out.innerHTML = `
+            <div class="typing-mode">Mode: Spellcheck suggestions (current token is incomplete)</div>
+            <div class="muted" style="margin-bottom:8px;">Current token: <span class="mono">${esc(data.current_token || "")}</span> | weighted confusion: ${data.used_confusion ? "yes" : "no"}</div>
+            ${data.message ? `<div class="muted" style="margin-bottom:8px;">${esc(data.message)}</div>` : ""}
+            ${renderSpellCandidates(data.spell_suggestions || [])}
+          `;
+          return;
+        }
+        if (data.mode === "next_word") {
+          out.innerHTML = `
+            <div class="typing-mode">Mode: Kneser-Ney smoothed next-word suggestions (last character is a space)</div>
+            <div class="muted" style="margin-bottom:8px;">Scoring: ${esc(data.scoring || "kneser_ney")} (discount d=0.75)</div>
+            ${renderNgramCards(data.ngram_suggestions || {})}
+            <div class="muted" style="margin-top:8px;">
+              Indexed docs=${data.index_stats?.num_docs_indexed ?? "?"}, vocab=${data.index_stats?.vocab_size ?? "?"}
+              ${data.index_stats?.candidate_pool_hint ? ` • candidates=${esc(data.index_stats.candidate_pool_hint)}` : ""}
+            </div>
+          `;
+          return;
+        }
+        out.innerHTML = `<div class="empty">Unhandled mode.</div>`;
+      } catch (err) {
+        if (err.name === "AbortError") return;
+        out.innerHTML = `<div class="error">Error: ${esc(err.message)}</div>`;
+      }
+    }
+    $("typingKnInput").addEventListener("input", scheduleTypingAssistKn);
+
     async function refreshStatus() {
       const dot = $("statusDot");
       const text = $("statusText");
@@ -692,7 +793,7 @@
         const data = await res.json();
         if (data.corpus_exists) {
           dot.className = "dot ok";
-          text.textContent = `Backend ready • corpus found • confusion file=${data.confusion_exists ? "yes" : "no"} • spell vocab cached=${data.spell_vocab_cached ? "yes" : "no"} • n-gram cache loaded=${data.ngram_index_cached ? "yes" : "no"}`;
+          text.textContent = `Backend ready • corpus found • confusion file=${data.confusion_exists ? "yes" : "no"} • spell vocab cached=${data.spell_vocab_cached ? "yes" : "no"} • n-gram cache loaded=${data.ngram_index_cached ? "yes" : "no"} • KN cache loaded=${data.kn_index_cached ? "yes" : "no"}`;
         } else {
           dot.className = "dot bad";
           text.textContent = `Backend reachable but corpus file was not found. Check data/raw/corpus.csv or tab corpus paths.`;
