@@ -368,6 +368,10 @@
           <span class="title">Typing Assistance</span>
           <span class="sub">Real-time next-word or spell suggestions</span>
         </button>
+        <button class="tab" data-tab="sentiment">
+          <span class="title">Sentiment (Task 3)</span>
+          <span class="sub">Live prediction with serialized best model bundle</span>
+        </button>
       </nav>
 
       <main class="panel">
@@ -446,6 +450,25 @@
           </div>
           <div class="results" id="typingResults"></div>
         </section>
+
+        <section class="tab-panel" id="panel-sentiment">
+          <h2>Sentiment Prediction (Task 3)</h2>
+          <p class="hint">
+            Predict sentiment for custom text using a serialized Task 3 model bundle (best model from your offline comparison).
+          </p>
+          <div class="controls">
+            <div class="helper-grid">
+              <input type="text" id="sentimentBundlePath" value="outputs/project2/task3_sentiment/best_model_bundle.pkl" aria-label="Sentiment bundle path" />
+              <button class="btn secondary" id="sentimentBundleInfoBtn" type="button">Check Bundle</button>
+            </div>
+            <textarea id="sentimentInput" placeholder="Write a review/comment to classify sentiment..."></textarea>
+            <div class="row">
+              <div class="muted">If no bundle exists yet, build it from `summary.json` using the command shown below.</div>
+              <button class="btn" id="sentimentPredictBtn" type="button">Predict Sentiment</button>
+            </div>
+          </div>
+          <div class="results" id="sentimentResults"></div>
+        </section>
       </main>
     </div>
   </div>
@@ -491,6 +514,14 @@
       if (!items || !items.length) return `<div class="empty">No candidates found.</div>`;
       return `<ul class="list">${
         items.map(i => `<li><span class="mono">${esc(i.token)}</span><span class="muted">freq=${i.freq}</span></li>`).join("")
+      }</ul>`;
+    }
+
+    function renderKeyValueRows(obj) {
+      const entries = Object.entries(obj || {});
+      if (!entries.length) return `<div class="empty">No metadata.</div>`;
+      return `<ul class="list">${
+        entries.map(([k, v]) => `<li><span class="mono">${esc(k)}</span><span class="muted">${esc(typeof v === "object" ? JSON.stringify(v) : v)}</span></li>`).join("")
       }</ul>`;
     }
 
@@ -684,6 +715,112 @@
     }
     $("typingInput").addEventListener("input", scheduleTypingAssist);
 
+    // Task 3 sentiment demo
+    async function fetchSentimentBundleInfo() {
+      const out = $("sentimentResults");
+      const bundlePath = $("sentimentBundlePath").value.trim() || "outputs/project2/task3_sentiment/best_model_bundle.pkl";
+      $("sentimentBundleInfoBtn").disabled = true;
+      out.innerHTML = `<div class="muted">Checking sentiment bundle...</div>`;
+      try {
+        const res = await fetch(`/api/sentiment_bundle_info?bundle_path=${encodeURIComponent(bundlePath)}`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        const info = data.bundle_info || {};
+        out.innerHTML = `
+          <div class="typing-mode">Bundle ready</div>
+          <div class="muted" style="margin-bottom:8px;">Path: <span class="mono">${esc(data.bundle_path || bundlePath)}</span></div>
+          <div class="cards">
+            <section class="card">
+              <h3><span>Model</span><span class="pill">Task 3</span></h3>
+              ${renderKeyValueRows({
+                model_name: info.model_name,
+                feature_set: info.feature_set,
+                label_mode: info.label_mode,
+                lexicon_size: info.lexicon_size,
+              })}
+            </section>
+            <section class="card">
+              <h3><span>Labels</span><span class="pill">Classes</span></h3>
+              ${renderSuggestionList((info.labels_order || []).map(x => ({ token: x, count: "" })), "No labels")}
+            </section>
+            <section class="card">
+              <h3><span>Feature Config</span><span class="pill">Config</span></h3>
+              ${renderKeyValueRows(info.feature_config || {})}
+            </section>
+          </div>
+        `;
+      } catch (err) {
+        out.innerHTML = `<div class="error">Bundle check failed: ${esc(err.message)}</div>
+        <div class="muted" style="margin-top:8px;">Build command: <span class="mono">python -m src.project2_task3_sentiment_infer --summary outputs/project2/task3_sentiment/summary.json --out outputs/project2/task3_sentiment/best_model_bundle.pkl</span></div>`;
+      } finally {
+        $("sentimentBundleInfoBtn").disabled = false;
+      }
+    }
+
+    async function runSentimentPredict() {
+      const out = $("sentimentResults");
+      const text = $("sentimentInput").value;
+      const bundlePath = $("sentimentBundlePath").value.trim() || "outputs/project2/task3_sentiment/best_model_bundle.pkl";
+      if (!text.trim()) {
+        out.innerHTML = `<div class="empty">Enter text to classify first.</div>`;
+        return;
+      }
+      $("sentimentPredictBtn").disabled = true;
+      out.innerHTML = `<div class="muted">Running sentiment prediction...</div>`;
+      try {
+        const data = await postJSON("/api/sentiment_predict", { text, bundle_path: bundlePath });
+        const probs = (data.probabilities || []).map(p => ({
+          token: `${p.label}`,
+          count: (p.prob ?? 0).toFixed ? Number(p.prob).toFixed(4) : p.prob,
+        }));
+        const lexHits = (data.debug?.lexicon_hits || []).map(x => `
+          <li>
+            <span class="mono">${esc(x.token)} ×${esc(x.count)}</span>
+            <span class="muted">w=${Number(x.weight).toFixed(3)} | contrib=${Number(x.contribution).toFixed(3)}</span>
+          </li>
+        `).join("");
+        out.innerHTML = `
+          <div class="typing-mode">Prediction: <span class="mono">${esc(data.predicted_label || "?")}</span></div>
+          <div class="muted" style="margin-bottom:10px;">
+            Model: <span class="mono">${esc(data.bundle_info?.model_name || "?")}</span> |
+            Features: <span class="mono">${esc(data.bundle_info?.feature_set || "?")}</span> |
+            Bundle: <span class="mono">${esc(data.bundle_path || bundlePath)}</span>
+          </div>
+          <div class="cards">
+            <section class="card">
+              <h3><span>Probabilities</span><span class="pill">Top</span></h3>
+              ${renderSuggestionList(probs, "No probabilities returned")}
+            </section>
+            <section class="card">
+              <h3><span>Tokenization</span><span class="pill">Debug</span></h3>
+              <div class="muted" style="margin-bottom:8px;">Token count: ${data.debug?.token_count ?? 0}</div>
+              <div class="mono" style="font-size:0.85rem; line-height:1.45;">${esc((data.debug?.tokens || []).join(" ")) || "(none)"}</div>
+            </section>
+            <section class="card">
+              <h3><span>Lexicon Hits</span><span class="pill">Debug</span></h3>
+              ${lexHits ? `<ul class="list">${lexHits}</ul>` : `<div class="empty">No lexicon tokens matched in this text.</div>`}
+              <div class="muted" style="margin-top:8px;font-size:0.85rem;">
+                pos=${Number(data.debug?.lexicon_positive_contrib_sum || 0).toFixed(3)} |
+                neg=${Number(data.debug?.lexicon_negative_contrib_sum || 0).toFixed(3)}
+              </div>
+            </section>
+          </div>
+        `;
+      } catch (err) {
+        out.innerHTML = `<div class="error">Error: ${esc(err.message)}</div>
+        <div class="muted" style="margin-top:8px;">If the bundle is missing, build it with:
+          <span class="mono">python -m src.project2_task3_sentiment_infer --summary outputs/project2/task3_sentiment/summary.json --out outputs/project2/task3_sentiment/best_model_bundle.pkl</span>
+        </div>`;
+      } finally {
+        $("sentimentPredictBtn").disabled = false;
+      }
+    }
+    $("sentimentPredictBtn").addEventListener("click", runSentimentPredict);
+    $("sentimentBundleInfoBtn").addEventListener("click", fetchSentimentBundleInfo);
+    $("sentimentInput").addEventListener("keydown", (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === "Enter") runSentimentPredict();
+    });
+
     async function refreshStatus() {
       const dot = $("statusDot");
       const text = $("statusText");
@@ -692,7 +829,7 @@
         const data = await res.json();
         if (data.corpus_exists) {
           dot.className = "dot ok";
-          text.textContent = `Backend ready • corpus found • confusion file=${data.confusion_exists ? "yes" : "no"} • spell vocab cached=${data.spell_vocab_cached ? "yes" : "no"} • n-gram cache loaded=${data.ngram_index_cached ? "yes" : "no"}`;
+          text.textContent = `Backend ready • corpus found • confusion file=${data.confusion_exists ? "yes" : "no"} • sentiment bundle=${data.sentiment_bundle_exists ? "yes" : "no"} • spell vocab cached=${data.spell_vocab_cached ? "yes" : "no"} • n-gram cache loaded=${data.ngram_index_cached ? "yes" : "no"}`;
         } else {
           dot.className = "dot bad";
           text.textContent = `Backend reachable but corpus file was not found. Check data/raw/corpus.csv or tab corpus paths.`;

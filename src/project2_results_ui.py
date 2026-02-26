@@ -11,6 +11,7 @@ import regex as re
 from flask import Flask, jsonify, request, send_from_directory
 
 from .load_data import load_corpus_csv
+from .project2_task3_sentiment_infer import bundle_metadata, load_bundle, predict_text
 from .serve_spellcheck import expand_suggest, get_vocab, load_weights
 from .sentence_segment import sentence_segment
 from .tokenize import tokenize
@@ -18,7 +19,9 @@ from .tokenize import tokenize
 
 app = Flask(__name__, static_folder=None)
 WORD_TAIL_RE = re.compile(r"[\p{L}\p{N}_'’\-]+$", re.UNICODE)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFUSION_PATH = "outputs/spellcheck/confusion.json"
+DEFAULT_SENTIMENT_BUNDLE_PATH = "outputs/project2/task3_sentiment/best_model_bundle.pkl"
 
 
 @dataclass
@@ -98,6 +101,16 @@ def _as_bool(value, default: bool = False) -> bool:
     if isinstance(value, bool):
         return value
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _resolve_project_path(path_str: str) -> Path:
+    p = Path(path_str)
+    return p if p.is_absolute() else (PROJECT_ROOT / p)
+
+
+@lru_cache(maxsize=2)
+def _get_sentiment_bundle(bundle_path: str):
+    return load_bundle(bundle_path)
 
 
 def _ngram_suggestions_payload(text: str, corpus_path: str, text_column: str, max_docs_ngram: int | None = None) -> dict:
@@ -315,8 +328,9 @@ def api_typing_assist():
 @app.route("/api/ui_status", methods=["GET"])
 def api_ui_status():
     corpus_path = request.args.get("corpus_path", "data/raw/corpus.csv")
-    corpus_exists = Path(corpus_path).exists()
-    confusion_exists = Path(DEFAULT_CONFUSION_PATH).exists()
+    corpus_exists = _resolve_project_path(str(corpus_path)).exists()
+    confusion_exists = _resolve_project_path(DEFAULT_CONFUSION_PATH).exists()
+    sentiment_bundle_exists = _resolve_project_path(DEFAULT_SENTIMENT_BUNDLE_PATH).exists()
     spell_cache_info = get_vocab.cache_info()
     spell_vocab_cached = bool(spell_cache_info.currsize)
 
@@ -324,6 +338,7 @@ def api_ui_status():
         {
             "corpus_exists": corpus_exists,
             "confusion_exists": confusion_exists,
+            "sentiment_bundle_exists": sentiment_bundle_exists,
             "spell_vocab_cached": spell_vocab_cached,
             "spell_cache_info": {
                 "hits": spell_cache_info.hits,
@@ -338,6 +353,65 @@ def api_ui_status():
             },
         }
     )
+
+
+@app.route("/api/sentiment_bundle_info", methods=["GET"])
+def api_sentiment_bundle_info():
+    bundle_path = request.args.get("bundle_path", DEFAULT_SENTIMENT_BUNDLE_PATH)
+    p = _resolve_project_path(str(bundle_path))
+    if not p.exists():
+        return jsonify(
+            {
+                "bundle_exists": False,
+                "bundle_path": str(p),
+                "error": (
+                    "Sentiment bundle not found. Build it with: "
+                    "python -m src.project2_task3_sentiment_infer "
+                    "--summary outputs/project2/task3_sentiment/summary.json "
+                    "--out outputs/project2/task3_sentiment/best_model_bundle.pkl"
+                ),
+            }
+        ), 404
+    try:
+        bundle = _get_sentiment_bundle(str(p))
+        return jsonify(
+            {
+                "bundle_exists": True,
+                "bundle_path": str(p),
+                "bundle_info": bundle_metadata(bundle),
+            }
+        )
+    except Exception as exc:
+        return jsonify({"bundle_exists": True, "bundle_path": str(p), "error": str(exc)}), 500
+
+
+@app.route("/api/sentiment_predict", methods=["POST"])
+def api_sentiment_predict():
+    data = request.get_json(silent=True) or {}
+    text = str(data.get("text", ""))
+    bundle_path = str(data.get("bundle_path", DEFAULT_SENTIMENT_BUNDLE_PATH))
+    bundle_file = _resolve_project_path(bundle_path)
+    if not text.strip():
+        return jsonify({"error": "text is required"}), 400
+    if not bundle_file.exists():
+        return jsonify(
+            {
+                "error": "sentiment bundle not found",
+                "bundle_path": str(bundle_file),
+                "how_to_build": (
+                    "python -m src.project2_task3_sentiment_infer "
+                    "--summary outputs/project2/task3_sentiment/summary.json "
+                    "--out outputs/project2/task3_sentiment/best_model_bundle.pkl"
+                ),
+            }
+        ), 404
+    try:
+        bundle = _get_sentiment_bundle(str(bundle_file))
+        pred = predict_text(bundle, text)
+        pred["bundle_path"] = str(bundle_file)
+        return jsonify(pred)
+    except Exception as exc:
+        return jsonify({"error": str(exc), "bundle_path": str(bundle_file)}), 500
 
 
 def main() -> None:
