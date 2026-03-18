@@ -18,6 +18,10 @@
 #include <math.h>
 #include <pthread.h>
 
+#ifndef fgetc_unlocked
+#define fgetc_unlocked getc_unlocked
+#endif
+
 #define MAX_STRING 100
 #define EXP_TABLE_SIZE 1000
 #define MAX_EXP 6

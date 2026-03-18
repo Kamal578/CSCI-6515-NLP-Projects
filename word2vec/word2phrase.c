@@ -18,6 +18,13 @@
 #include <math.h>
 #include <pthread.h>
 
+#ifndef fgetc_unlocked
+#define fgetc_unlocked getc_unlocked
+#endif
+#ifndef fputc_unlocked
+#define fputc_unlocked putc_unlocked
+#endif
+
 #define MAX_STRING 60
 
 const int vocab_hash_size = 500000000; // Maximum 500M entries in the vocabulary

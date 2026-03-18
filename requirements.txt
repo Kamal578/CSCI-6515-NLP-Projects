@@ -8,5 +8,6 @@ matplotlib
 langid
 flask
 scikit-learn
-langid
+scipy
+torch
 pytest
