@@ -7,6 +7,8 @@ pandas
 matplotlib
 langid
 flask
+streamlit
+plotly
 scikit-learn
 scipy
 torch

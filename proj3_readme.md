@@ -22,12 +22,19 @@ Implemented pipeline (Tasks 1..6 + extra UI):
 - `src/project3_task5_dl.py`
 - `src/project3_task6_report.py`
 - `src/project3_results_ui.py` + `src/project3_results_ui.html`
+- `src/project3_dashboard.py` (interactive Streamlit UI)
 
 ## How to Run
 
 ### Full run
 ```bash
 bash scripts/run_project3.sh
+
+# Full run + Streamlit UI at end
+bash scripts/run_project3.sh --with-ui
+
+# Full run + legacy Flask UI
+bash scripts/run_project3.sh --with-legacy-ui
 ```
 
 ### Smoke run
@@ -43,9 +50,21 @@ bash scripts/run_project3.sh --tasks 4,5,6
 
 ### Launch UI
 ```bash
+# New interactive dashboard (recommended)
+streamlit run src/project3_dashboard.py -- --output-root outputs/project3
+
+# Equivalent convenience script
+bash scripts/run_project3_ui.sh
+
+# Legacy Flask + HTML dashboard
 python3 -m src.project3_results_ui --output-root outputs/project3 --host 127.0.0.1 --port 5060
 ```
-Open: `http://127.0.0.1:5060`
+Open:
+- Streamlit: `http://localhost:8501`
+- Flask UI: `http://127.0.0.1:5060`
+
+The Streamlit UI includes a `Playground` tab where you can type custom words/analogies,
+run neighbor search, inspect cosine similarity, blend vectors, and build a 2D semantic map.
 
 ## Task 1: Dataset + Matrix Analysis
 
@@ -176,6 +195,6 @@ A curated package was prepared for report/presentation use:
   - concise presenter notes (`presentation_notes.md`)
 
 ## Reproducibility / Notes
-- Python dependencies are in `requirements.txt` (includes `torch`, `scipy`, `scikit-learn`, `flask`, `regex`, `pytest`).
+- Python dependencies are in `requirements.txt` (includes `torch`, `scipy`, `scikit-learn`, `flask`, `streamlit`, `plotly`, `regex`, `pytest`).
 - Imported `word2vec` sources were patched for macOS C compiler compatibility (`fgetc_unlocked`/`fputc_unlocked` fallbacks).
 - For grading artifacts, prefer `outputs/project3/task*/summary.json` and `outputs/project3/task5_dl/leaderboard.csv` as primary references.

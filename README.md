@@ -19,6 +19,10 @@ The codebase currently includes:
 ### Runners
 - `scripts/run_project1.sh` — Project 1 pipeline runner
 - `scripts/run_project2.sh` — Project 2 runner (Tasks 1, 2, 3, and 4 when required inputs are present)
-- `scripts/run_project3.sh` — Project 3 runner (Tasks 1..6; optional UI launch with `--with-ui`)
+- `scripts/run_project3.sh` — Project 3 runner (Tasks 1..6; optional Streamlit UI launch with `--with-ui`, or legacy UI with `--with-legacy-ui`)
+
+### Project 3 UI
+- `streamlit run src/project3_dashboard.py -- --output-root outputs/project3` — interactive Project 3 dashboard
+- `python3 -m src.project3_results_ui --output-root outputs/project3 --host 127.0.0.1 --port 5060` — legacy Flask/HTML dashboard
 
 Start with the project-specific README above depending on the assignment you want to run.

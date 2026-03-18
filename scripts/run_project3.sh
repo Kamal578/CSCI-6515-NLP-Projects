@@ -18,15 +18,17 @@ log() { echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"; }
 SMOKE=0
 TASKS="1,2,3,4,5,6"
 RUN_UI=0
+UI_MODE="streamlit"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --smoke) SMOKE=1; shift ;;
     --tasks) TASKS="${2:-}"; shift 2 ;;
     --with-ui) RUN_UI=1; shift ;;
+    --with-legacy-ui) RUN_UI=1; UI_MODE="flask"; shift ;;
     *)
       echo "Unknown argument: $1" >&2
-      echo "Usage: $0 [--smoke] [--tasks 1,2,3,4,5,6] [--with-ui]" >&2
+      echo "Usage: $0 [--smoke] [--tasks 1,2,3,4,5,6] [--with-ui] [--with-legacy-ui]" >&2
       exit 1
       ;;
   esac
@@ -161,8 +163,12 @@ Project 3 outputs
 EOF
 
 if [[ "$RUN_UI" -eq 1 ]]; then
-  log "Starting Project 3 UI server on http://127.0.0.1:5060"
-  exec "$PYTHON_BIN" -m src.project3_results_ui --output-root "$OUT_ROOT" --host 127.0.0.1 --port 5060
+  if [[ "$UI_MODE" == "flask" ]]; then
+    log "Starting legacy Flask Project 3 UI on http://127.0.0.1:5060"
+    exec "$PYTHON_BIN" -m src.project3_results_ui --output-root "$OUT_ROOT" --host 127.0.0.1 --port 5060
+  fi
+  log "Starting Streamlit Project 3 UI on http://localhost:8501"
+  exec env STREAMLIT_BROWSER_GATHER_USAGE_STATS=false streamlit run src/project3_dashboard.py -- --output-root "$OUT_ROOT"
 fi
 
 log "Project 3 run finished"
