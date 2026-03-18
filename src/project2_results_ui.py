@@ -11,6 +11,9 @@ import regex as re
 from flask import Flask, jsonify, request, send_from_directory
 
 from .load_data import load_corpus_csv
+from .project2_ngram_lm import END_TOKEN
+from .project2_smoothing_lm import KneserNeyNgramModel, NgramCountStore
+from .project2_task3_sentiment_infer import bundle_metadata, load_bundle, predict_text
 from .serve_spellcheck import expand_suggest, get_vocab, load_weights
 from .sentence_segment import sentence_segment
 from .tokenize import tokenize
@@ -18,7 +21,9 @@ from .tokenize import tokenize
 
 app = Flask(__name__, static_folder=None)
 WORD_TAIL_RE = re.compile(r"[\p{L}\p{N}_'’\-]+$", re.UNICODE)
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_CONFUSION_PATH = "outputs/spellcheck/confusion.json"
+DEFAULT_SENTIMENT_BUNDLE_PATH = "outputs/project2/task3_sentiment/best_model_bundle.pkl"
 
 
 @dataclass
@@ -33,6 +38,22 @@ class NgramSuggestionIndex:
     @property
     def vocab_size(self) -> int:
         return len(self.unigram_counts)
+
+
+@dataclass
+class KneserNeySuggestionIndex:
+    counts: NgramCountStore
+    bigram_next: dict[str, Counter[str]]
+    trigram_next: dict[tuple[str, str], Counter[str]]
+    top_unigram_tokens: tuple[str, ...]
+    top_continuation_tokens: tuple[str, ...]
+    num_docs: int
+    num_sentences: int
+    num_tokens: int
+
+    @property
+    def vocab_size(self) -> int:
+        return self.counts.pred_vocab_size - (1 if END_TOKEN in self.counts.pred_vocab else 0)
 
 
 def _top_items(counter: Counter[str] | None, k: int = 3) -> list[dict[str, int]]:
@@ -87,6 +108,65 @@ def get_ngram_index(corpus_path: str, text_column: str = "text", max_docs: int |
     )
 
 
+@lru_cache(maxsize=2)
+def get_kn_suggestion_index(
+    corpus_path: str,
+    text_column: str = "text",
+    max_docs: int | None = None,
+) -> KneserNeySuggestionIndex:
+    df = load_corpus_csv(corpus_path)
+    if text_column not in df.columns:
+        raise ValueError(f"Column '{text_column}' not found. Available: {df.columns.tolist()}")
+
+    texts = df[text_column].fillna("").astype(str).tolist()
+    if max_docs is not None:
+        texts = texts[:max_docs]
+
+    sentences: list[list[str]] = []
+    bigram_next: dict[str, Counter[str]] = defaultdict(Counter)
+    trigram_next: dict[tuple[str, str], Counter[str]] = defaultdict(Counter)
+    sent_count = 0
+    tok_count = 0
+
+    for text in texts:
+        if not text.strip():
+            continue
+        for sent in sentence_segment(text):
+            toks = tokenize(sent, lowercase=True)
+            if not toks:
+                continue
+            sentences.append(toks)
+            sent_count += 1
+            tok_count += len(toks)
+            for i in range(1, len(toks)):
+                bigram_next[toks[i - 1]][toks[i]] += 1
+            for i in range(2, len(toks)):
+                trigram_next[(toks[i - 2], toks[i - 1])][toks[i]] += 1
+
+    counts = NgramCountStore.build(sentences, max_order=3)
+
+    # Precompute a compact global candidate pool for responsive smoothed prediction ranking.
+    top_unigram_tokens = tuple(
+        ng[0] for ng, _ in counts.ngram_counts[1].most_common(512) if ng and ng[0] != END_TOKEN
+    )
+    top_continuation_tokens = tuple(
+        tok for tok, _ in counts.continuation_counts.most_common(512) if tok != END_TOKEN
+    )
+    if not top_continuation_tokens:
+        top_continuation_tokens = top_unigram_tokens
+
+    return KneserNeySuggestionIndex(
+        counts=counts,
+        bigram_next=dict(bigram_next),
+        trigram_next=dict(trigram_next),
+        top_unigram_tokens=top_unigram_tokens,
+        top_continuation_tokens=top_continuation_tokens,
+        num_docs=len(texts),
+        num_sentences=sent_count,
+        num_tokens=tok_count,
+    )
+
+
 def _extract_current_partial_word(text: str) -> str:
     m = WORD_TAIL_RE.search(text or "")
     return m.group(0) if m else ""
@@ -98,6 +178,16 @@ def _as_bool(value, default: bool = False) -> bool:
     if isinstance(value, bool):
         return value
     return str(value).strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _resolve_project_path(path_str: str) -> Path:
+    p = Path(path_str)
+    return p if p.is_absolute() else (PROJECT_ROOT / p)
+
+
+@lru_cache(maxsize=2)
+def _get_sentiment_bundle(bundle_path: str):
+    return load_bundle(bundle_path)
 
 
 def _ngram_suggestions_payload(text: str, corpus_path: str, text_column: str, max_docs_ngram: int | None = None) -> dict:
@@ -137,6 +227,114 @@ def _ngram_suggestions_payload(text: str, corpus_path: str, text_column: str, ma
             "num_sentences_indexed": idx.num_sentences,
             "num_tokens_indexed": idx.num_tokens,
             "vocab_size": idx.vocab_size,
+        },
+    }
+
+
+def _top_prob_items(scored: list[tuple[str, float]], k: int = 3) -> list[dict[str, float]]:
+    scored = [(tok, p) for tok, p in scored if tok and tok != END_TOKEN and p > 0.0]
+    if not scored:
+        return []
+    scored.sort(key=lambda x: (-x[1], x[0]))
+    return [{"token": tok, "prob": float(p)} for tok, p in scored[:k]]
+
+
+def _kn_candidate_pool(
+    idx: KneserNeySuggestionIndex,
+    order: int,
+    last1: str | None,
+    last2: tuple[str, str] | None,
+) -> set[str]:
+    cands: set[str] = set()
+    if order >= 3 and last2:
+        cands.update(idx.trigram_next.get(last2, {}).keys())
+    if order >= 2 and last1:
+        cands.update(idx.bigram_next.get(last1, {}).keys())
+    # Backoff-friendly global pool so unseen followers can still surface.
+    cands.update(idx.top_continuation_tokens[:256])
+    if len(cands) < 64:
+        cands.update(idx.top_unigram_tokens[:128])
+    cands.discard(END_TOKEN)
+    return cands
+
+
+def _kn_next_items(
+    idx: KneserNeySuggestionIndex,
+    model: KneserNeyNgramModel,
+    order: int,
+    last1: str | None,
+    last2: tuple[str, str] | None,
+    k: int = 3,
+) -> list[dict[str, float]]:
+    if order == 1:
+        # With KN unigrams, ranking follows continuation counts (or unigram fallback on tiny corpora).
+        base_tokens = idx.top_continuation_tokens or idx.top_unigram_tokens
+        scored = [(tok, model.prob((tok,))) for tok in base_tokens[:256]]
+        return _top_prob_items(scored, k=k)
+
+    if order == 2 and not last1:
+        return []
+    if order == 3 and not last2:
+        return []
+
+    cands = _kn_candidate_pool(idx, order=order, last1=last1, last2=last2)
+    scored: list[tuple[str, float]] = []
+    if order == 2 and last1:
+        for tok in cands:
+            scored.append((tok, model.prob((last1, tok))))
+    elif order == 3 and last2:
+        for tok in cands:
+            scored.append((tok, model.prob((last2[0], last2[1], tok))))
+    return _top_prob_items(scored, k=k)
+
+
+def _kn_suggestions_payload(
+    text: str,
+    corpus_path: str,
+    text_column: str,
+    max_docs_ngram: int | None = None,
+) -> dict:
+    idx = get_kn_suggestion_index(corpus_path, text_column, max_docs_ngram)
+    toks = _context_tokens_for_text(text)
+
+    last1 = toks[-1] if len(toks) >= 1 else None
+    last2 = tuple(toks[-2:]) if len(toks) >= 2 else None
+
+    kn1 = KneserNeyNgramModel(n=1, counts=idx.counts, d=0.75)
+    kn2 = KneserNeyNgramModel(n=2, counts=idx.counts, d=0.75)
+    kn3 = KneserNeyNgramModel(n=3, counts=idx.counts, d=0.75)
+
+    unigram_top = _kn_next_items(idx, model=kn1, order=1, last1=last1, last2=last2, k=3)
+    bigram_top = _kn_next_items(idx, model=kn2, order=2, last1=last1, last2=last2, k=3)
+    trigram_top = _kn_next_items(idx, model=kn3, order=3, last1=last1, last2=last2, k=3)
+
+    return {
+        "input_text": text,
+        "context_tokens": toks[-6:],
+        "scoring": "kneser_ney",
+        "suggestions": {
+            "1gram": {
+                "context": [],
+                "items": unigram_top,
+                "fallback_used": False,
+            },
+            "2gram": {
+                "context": [last1] if last1 else [],
+                "items": bigram_top if bigram_top else unigram_top,
+                "fallback_used": bool(last1) and not bigram_top,
+            },
+            "3gram": {
+                "context": list(last2) if last2 else [],
+                "items": trigram_top if trigram_top else (bigram_top if bigram_top else unigram_top),
+                "fallback_used": bool(last2) and not trigram_top,
+            },
+        },
+        "index_stats": {
+            "num_docs_indexed": idx.num_docs,
+            "num_sentences_indexed": idx.num_sentences,
+            "num_tokens_indexed": idx.num_tokens,
+            "vocab_size": idx.vocab_size,
+            "candidate_pool_hint": "context followers + high-continuation tokens",
         },
     }
 
@@ -252,7 +450,15 @@ def api_sentence_delimiter():
 
 @app.route("/api/typing_assist", methods=["POST"])
 def api_typing_assist():
-    data = request.get_json(silent=True) or {}
+    return jsonify(_typing_assist_payload(request.get_json(silent=True) or {}, next_word_engine="counts"))
+
+
+@app.route("/api/typing_assist_kn", methods=["POST"])
+def api_typing_assist_kn():
+    return jsonify(_typing_assist_payload(request.get_json(silent=True) or {}, next_word_engine="kneser_ney"))
+
+
+def _typing_assist_payload(data: dict, next_word_engine: str = "counts") -> dict:
     text = str(data.get("text", ""))
     corpus_path = str(data.get("corpus_path", "data/raw/corpus.csv"))
     text_column = str(data.get("text_column", "text"))
@@ -262,33 +468,33 @@ def api_typing_assist():
     max_docs_ngram = int(max_docs_ngram) if max_docs_ngram not in (None, "", "null") else None
 
     if not text:
-        return jsonify({"mode": "empty", "message": "Start typing to see suggestions."})
+        return {"mode": "empty", "message": "Start typing to see suggestions."}
 
     if text[-1].isspace():
-        payload = _ngram_suggestions_payload(text, corpus_path, text_column, max_docs_ngram=max_docs_ngram)
-        return jsonify(
-            {
-                "mode": "next_word",
-                "input_text": text,
-                "ngram_suggestions": payload["suggestions"],
-                "index_stats": payload["index_stats"],
-            }
-        )
+        if next_word_engine == "kneser_ney":
+            payload = _kn_suggestions_payload(text, corpus_path, text_column, max_docs_ngram=max_docs_ngram)
+        else:
+            payload = _ngram_suggestions_payload(text, corpus_path, text_column, max_docs_ngram=max_docs_ngram)
+        return {
+            "mode": "next_word",
+            "input_text": text,
+            "scoring": payload.get("scoring", "counts"),
+            "ngram_suggestions": payload["suggestions"],
+            "index_stats": payload["index_stats"],
+        }
 
     partial = _extract_current_partial_word(text)
     if not partial:
-        return jsonify({"mode": "empty", "message": "Type letters to get spell suggestions."})
+        return {"mode": "empty", "message": "Type letters to get spell suggestions."}
     if len(partial) < 3:
-        return jsonify(
-            {
-                "mode": "spellcheck",
-                "input_text": text,
-                "current_token": partial,
-                "spell_suggestions": [],
-                "used_confusion": False,
-                "message": "Type at least 3 characters for spell suggestions.",
-            }
-        )
+        return {
+            "mode": "spellcheck",
+            "input_text": text,
+            "current_token": partial,
+            "spell_suggestions": [],
+            "used_confusion": False,
+            "message": "Type at least 3 characters for spell suggestions.",
+        }
 
     # Typing mode uses stricter limits than the dedicated spellchecker tab to stay responsive.
     spell = _spell_suggestions_payload(
@@ -301,22 +507,21 @@ def api_typing_assist():
         max_variant_edits=1,
         max_variant_candidates=12,
     )
-    return jsonify(
-        {
-            "mode": "spellcheck",
-            "input_text": text,
-            "current_token": partial,
-            "spell_suggestions": spell["candidates"],
-            "used_confusion": spell["used_confusion"],
-        }
-    )
+    return {
+        "mode": "spellcheck",
+        "input_text": text,
+        "current_token": partial,
+        "spell_suggestions": spell["candidates"],
+        "used_confusion": spell["used_confusion"],
+    }
 
 
 @app.route("/api/ui_status", methods=["GET"])
 def api_ui_status():
     corpus_path = request.args.get("corpus_path", "data/raw/corpus.csv")
-    corpus_exists = Path(corpus_path).exists()
-    confusion_exists = Path(DEFAULT_CONFUSION_PATH).exists()
+    corpus_exists = _resolve_project_path(str(corpus_path)).exists()
+    confusion_exists = _resolve_project_path(DEFAULT_CONFUSION_PATH).exists()
+    sentiment_bundle_exists = _resolve_project_path(DEFAULT_SENTIMENT_BUNDLE_PATH).exists()
     spell_cache_info = get_vocab.cache_info()
     spell_vocab_cached = bool(spell_cache_info.currsize)
 
@@ -324,6 +529,7 @@ def api_ui_status():
         {
             "corpus_exists": corpus_exists,
             "confusion_exists": confusion_exists,
+            "sentiment_bundle_exists": sentiment_bundle_exists,
             "spell_vocab_cached": spell_vocab_cached,
             "spell_cache_info": {
                 "hits": spell_cache_info.hits,
@@ -336,8 +542,73 @@ def api_ui_status():
                 "misses": get_ngram_index.cache_info().misses,
                 "currsize": get_ngram_index.cache_info().currsize,
             },
+            "kn_index_cached": bool(get_kn_suggestion_index.cache_info().currsize),
+            "kn_cache_info": {
+                "hits": get_kn_suggestion_index.cache_info().hits,
+                "misses": get_kn_suggestion_index.cache_info().misses,
+                "currsize": get_kn_suggestion_index.cache_info().currsize,
+            },
         }
     )
+
+
+@app.route("/api/sentiment_bundle_info", methods=["GET"])
+def api_sentiment_bundle_info():
+    bundle_path = request.args.get("bundle_path", DEFAULT_SENTIMENT_BUNDLE_PATH)
+    p = _resolve_project_path(str(bundle_path))
+    if not p.exists():
+        return jsonify(
+            {
+                "bundle_exists": False,
+                "bundle_path": str(p),
+                "error": (
+                    "Sentiment bundle not found. Build it with: "
+                    "python -m src.project2_task3_sentiment_infer "
+                    "--summary outputs/project2/task3_sentiment/summary.json "
+                    "--out outputs/project2/task3_sentiment/best_model_bundle.pkl"
+                ),
+            }
+        ), 404
+    try:
+        bundle = _get_sentiment_bundle(str(p))
+        return jsonify(
+            {
+                "bundle_exists": True,
+                "bundle_path": str(p),
+                "bundle_info": bundle_metadata(bundle),
+            }
+        )
+    except Exception as exc:
+        return jsonify({"bundle_exists": True, "bundle_path": str(p), "error": str(exc)}), 500
+
+
+@app.route("/api/sentiment_predict", methods=["POST"])
+def api_sentiment_predict():
+    data = request.get_json(silent=True) or {}
+    text = str(data.get("text", ""))
+    bundle_path = str(data.get("bundle_path", DEFAULT_SENTIMENT_BUNDLE_PATH))
+    bundle_file = _resolve_project_path(bundle_path)
+    if not text.strip():
+        return jsonify({"error": "text is required"}), 400
+    if not bundle_file.exists():
+        return jsonify(
+            {
+                "error": "sentiment bundle not found",
+                "bundle_path": str(bundle_file),
+                "how_to_build": (
+                    "python -m src.project2_task3_sentiment_infer "
+                    "--summary outputs/project2/task3_sentiment/summary.json "
+                    "--out outputs/project2/task3_sentiment/best_model_bundle.pkl"
+                ),
+            }
+        ), 404
+    try:
+        bundle = _get_sentiment_bundle(str(bundle_file))
+        pred = predict_text(bundle, text)
+        pred["bundle_path"] = str(bundle_file)
+        return jsonify(pred)
+    except Exception as exc:
+        return jsonify({"error": str(exc), "bundle_path": str(bundle_file)}), 500
 
 
 def main() -> None:
