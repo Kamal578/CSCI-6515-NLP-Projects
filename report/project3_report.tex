@@ -96,6 +96,7 @@ Core entry points:
 \subsection{Corpus for Tasks 1--3}
 \begin{itemize}
     \item Source file: \texttt{data/raw/corpus.csv}
+    \item Provenance: same cleaned Azerbaijani corpus developed and used in Project 1 and Project 2.
     \item Text column: \texttt{text}
     \item Tokenization and sentence segmentation reuse existing project modules (\texttt{tokenize.py}, \texttt{sentence\_segment.py})
 \end{itemize}
@@ -103,6 +104,8 @@ Core entry points:
 \subsection{Sentiment Dataset for Tasks 4--5}
 \begin{itemize}
     \item Source files: \texttt{data/external/train.csv}, \texttt{data/external/test.csv}
+    \item Original dataset source: \href{https://huggingface.co/datasets/hajili/azerbaijani_review_sentiment_classification/}{hajili/azerbaijani\_review\_sentiment\_classification} (Hugging Face).
+    \item Note: local \texttt{train.csv}/\texttt{test.csv} are the project copies used by the pipeline.
     \item Text column: \texttt{content}
     \item Label column: \texttt{score}
     \item Label mode: 3-class sentiment (\texttt{negative}, \texttt{neutral}, \texttt{positive})
@@ -301,7 +304,7 @@ Task 4 compares Task 2 and Task 3 with consistent intrinsic metrics:
 \begin{itemize}
     \item Analogy hit@1 and hit@k (from Task 2/3 summaries)
     \item Average top-3 neighbor cosine
-    \item Coverage ratio on sentiment vocabulary from \texttt{data/external/train.csv}+\texttt{test.csv}
+    \item Coverage ratio on sentiment vocabulary from local \texttt{data/external/train.csv}+\texttt{test.csv} (project copy of the Hugging Face sentiment dataset above)
 \end{itemize}
 
 \subsection{Results}
