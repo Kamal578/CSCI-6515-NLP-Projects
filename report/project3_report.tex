@@ -292,7 +292,6 @@ Analogy behavior:
     \item Correct: \texttt{bakı:azərbaycan::ankara:türkiyə} (hit).
     \item Correct directional relation: \texttt{şimal:cənub::şərq:qərb} (hit).
     \item Incorrect: \texttt{ata:ana::oğul:qız} predicted \texttt{istərəm}.
-    \item OOV skip example: \texttt{keçmiş:indiki::dünən:bu\_gün}.
 \end{itemize}
 Patterns suggest that broad geographic/directional regularities are represented better than finer family-role analogies.
 
@@ -460,21 +459,6 @@ The Streamlit UI includes a \texttt{Playground} where users can:
     \item The sentiment dataset is highly imbalanced toward the positive class, which suppresses neutral-class performance.
     \item Intrinsic analogy set is intentionally small and includes OOV-sensitive items.
     \item Embedding coverage of Task 5 model vocabulary for pre-trained vectors is limited in this run (reported in Task 5 summary metadata).
-\end{itemize}
-
-\subsection{Future Improvements}
-\begin{itemize}
-    \item Expand and curate an Azerbaijani analogy benchmark with stronger OOV control.
-    \item Improve sentiment balancing (class weights, sampling, or focal losses).
-    \item Add contextual embeddings and transformer baselines for Task 5.
-    \item Include error slices by label and confidence calibration in final reporting.
-\end{itemize}
-
-\section{Team Contribution}
-\begin{itemize}
-    \item \textbf{Kamal Ahmadov:} Project 3 pipeline orchestration, Task 1 matrix/statistics implementation, Task 2/3 training integration (Word2Vec/GloVe), Task 5 DL experiment runner, report assembly, and final UI integration.
-    \item \textbf{Rufat Guliyev:} Dataset preparation and validation, evaluation criteria review for Tasks 2--5, output verification for comparative tables/figures, presentation preparation, and report review/edits.
-    \item \textbf{Shared:} Experiment design decisions, qualitative analysis discussion, and final interpretation of comparative results.
 \end{itemize}
 
 \section{Conclusion}
