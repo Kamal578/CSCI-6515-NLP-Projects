@@ -31,7 +31,7 @@ DEFAULT_ANALOGIES = [
     ("kişi", "qadın", "oğlan", "qız"),
     ("bakı", "azərbaycan", "ankara", "türkiyə"),
     ("ata", "ana", "oğul", "qız"),
-    ("keçmiş", "indiki", "dünən", "bu_gün"),
+    ("keçmiş", "indiki", "dünən", "bugün"),
     ("şimal", "cənub", "şərq", "qərb"),
 ]
 

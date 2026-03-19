@@ -29,10 +29,10 @@ DEFAULT_TARGETS = [
 
 DEFAULT_ANALOGIES = [
     ("kişi", "qadın", "oğlan", "qız"),
-    ("böyük", "ən_böyük", "kiçik", "ən_kiçik"),
     ("bakı", "azərbaycan", "ankara", "türkiyə"),
     ("ata", "ana", "oğul", "qız"),
-    ("yaxşı", "daha_yaxşı", "pis", "daha_pis"),
+    ("keçmiş", "indiki", "dünən", "bugün"),
+    ("şimal", "cənub", "şərq", "qərb"),
 ]
 
 
