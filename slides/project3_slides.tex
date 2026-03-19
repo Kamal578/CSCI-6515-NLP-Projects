@@ -1,0 +1,352 @@
+\documentclass{beamer}
+\usetheme{Madrid}
+\usecolortheme{default}
+\setbeamertemplate{footline}[frame number]
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{mathtools}
+\usepackage{array}
+\usepackage{tipa}
+
+\DeclareUnicodeCharacter{0259}{\textschwa}
+\DeclareUnicodeCharacter{018F}{\textschwa}
+
+\graphicspath{
+  {../outputs/project3/report_figures/}
+  {outputs/project3/report_figures/}
+}
+
+\title{Spring 2026 Natural Language Processing (CSCI-6515)}
+\subtitle{Project 3: Word Embeddings, Comparative Analysis, DL Classification, and Interactive UI}
+\author{
+\textbf{Kamal Ahmadov} \\ \small kahmadov24700@ada.edu.az; kamal.ahmadov@gwu.edu \\ \and
+\textbf{Rufat Guliyev} \\ \small rguliyev24988@ada.edu.az; rufat.guliyev@gwu.edu
+}
+\institute{ADA University \& George Washington University}
+\date{March 19, 2026}
+
+\newcommand{\pp}{\operatorname{PP}}
+\newcommand{\fmacro}{F1_{\text{macro}}}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}{Outline}
+\tableofcontents
+\end{frame}
+
+\section{Motivation and Scope}
+
+\begin{frame}{Motivation}
+\begin{itemize}
+  \item Azerbaijani NLP needs stronger semantic representations than sparse token counts.
+  \item We evaluate embeddings at two levels:
+  \begin{itemize}
+    \item Intrinsic: nearest neighbors + analogy arithmetic.
+    \item Extrinsic: downstream sentiment classification.
+  \end{itemize}
+  \item Project 3 objective: complete Tasks 1--6 and provide an interactive UI for exploration.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Datasets and Pipeline}
+\textbf{Data sources}
+\begin{itemize}
+  \item Corpus for Tasks 1--3: \texttt{data/raw/corpus.csv}
+  \item Sentiment for Tasks 4--5: \texttt{data/external/train.csv}, \texttt{test.csv}
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Pipeline orchestration}
+\begin{itemize}
+  \item Runner: \texttt{bash scripts/run\_project3.sh}
+  \item Task outputs: \texttt{outputs/project3/task1\_...task6\_...}
+  \item UI: Streamlit dashboard + legacy Flask UI
+\end{itemize}
+\end{frame}
+
+\section{Task 1: Dataset + Matrices}
+
+\begin{frame}{Task 1 Method (with light math)}
+\small
+\textbf{Term-document matrix}
+\[
+X \in \mathbb{R}^{D \times V}, \quad X_{d,w} = \text{count}(w \text{ in document } d)
+\]
+
+\textbf{Word-word co-occurrence matrix}
+\[
+C_{i,j} = \sum_{t}\mathbf{1}[w_t=i]\mathbf{1}[w_{t+\Delta}=j], \ |\Delta|\leq W
+\]
+
+\vspace{0.4em}
+\textbf{Configured thresholds}
+\begin{itemize}
+  \item Frequent words: count $\ge 100$
+  \item Rare words: count $\le 2$
+  \item Heatmap view: top terms/docs for readability
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Task 1 Results}
+\small
+\begin{table}
+\centering
+\begin{tabular}{lr}
+\toprule
+Metric & Value \\
+\midrule
+Documents & 31,842 \\
+Sentences & 813,319 \\
+Tokens & 11,905,937 \\
+Vocabulary size & 586,674 \\
+Frequent words ($\ge100$) & 12,436 \\
+Rare words ($\le2$) & 398,599 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\vspace{0.3em}
+\textbf{Artifacts:} term-document sparse matrix, word frequency distribution, top-matrix CSVs, and heatmaps.
+\end{frame}
+
+\begin{frame}{Task 1 Visualizations}
+\begin{columns}[T,totalwidth=\textwidth]
+\column{0.5\textwidth}
+\centering
+\includegraphics[width=\linewidth]{task1_matrices_term_document_heatmap.png}
+\\ \tiny Term-document heatmap
+
+\column{0.5\textwidth}
+\centering
+\includegraphics[width=\linewidth]{task1_matrices_word_word_heatmap.png}
+\\ \tiny Word-word heatmap
+\end{columns}
+\end{frame}
+
+\section{Task 2: Word2Vec}
+
+\begin{frame}{Task 2 Word2Vec Setup}
+\small
+\textbf{Training objective (skip-gram)}
+\[
+\max \sum_{t}\sum_{-k \le j \le k,\ j\neq0} \log p(w_{t+j}\mid w_t)
+\]
+
+\vspace{0.4em}
+\textbf{Configuration}
+\begin{itemize}
+  \item Model: skip-gram (\texttt{cbow=0})
+  \item Dimension: 200, Window: 5
+  \item Negative sampling: 10, Min count: 5
+  \item Iterations: 10
+\end{itemize}
+
+\textbf{Evaluation}
+\begin{itemize}
+  \item Similar words for 10 target words
+  \item Analogy arithmetic (\(b-a+c\))
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Task 2 Results (Word2Vec)}
+\small
+\begin{itemize}
+  \item Vocab size: 122,930, vector dim: 200
+  \item Analogy hit@k: 0.6667 (3 evaluated / 5 total)
+  \item Good local morphology for several targets (e.g., seher $\rightarrow$ seheri)
+  \item Some noisy neighbors remain (data noise + OOV effects)
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Example analogies}
+\begin{itemize}
+  \item Correct: \texttt{kishi:qadin :: oglan:qiz}
+  \item Correct: \texttt{baki:azerbaycan :: ankara:turkiye}
+  \item Incorrect: \texttt{ata:ana :: ogul:?} $\rightarrow$ \texttt{isterem}
+\end{itemize}
+\end{frame}
+
+\section{Task 3: GloVe}
+
+\begin{frame}{Task 3 GloVe Setup}
+\small
+\textbf{GloVe objective}
+\[
+J=\sum_{i,j} f(X_{ij})\left(w_i^\top \tilde{w}_j + b_i + \tilde{b}_j - \log X_{ij}\right)^2
+\]
+
+\vspace{0.4em}
+\textbf{Configuration}
+\begin{itemize}
+  \item Dimension: 200, Window: 10
+  \item Min count: 5, Iterations: 20
+  \item \(x_{\max}=10\), \(\eta=0.05\), \(\alpha=0.75\)
+\end{itemize}
+
+\textbf{Same evaluation protocol as Task 2}
+\end{frame}
+
+\begin{frame}{Task 3 Results (GloVe)}
+\small
+\begin{itemize}
+  \item Vocab size: 122,930, vector dim: 200
+  \item Analogy hit@k: 0.7500 (4 evaluated / 5 total)
+  \item Strong morphology neighbors also observed for many targets
+  \item Some high-score noisy neighbors still appear
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Example analogies}
+\begin{itemize}
+  \item Correct: \texttt{kishi:qadin :: oglan:qiz}
+  \item Correct: \texttt{shimal:cenub :: sherq:qerb}
+  \item Incorrect: \texttt{ata:ana :: ogul:?} $\rightarrow$ \texttt{isterem}
+\end{itemize}
+\end{frame}
+
+\section{Task 4: Comparison}
+
+\begin{frame}{Task 4: Word2Vec vs GloVe}
+\small
+\begin{table}
+\centering
+\begin{tabular}{lrrrr}
+\toprule
+Model & Hit@1 & Hit@k & Avg top-3 cosine & Coverage \\
+\midrule
+Word2Vec & 0.6667 & 0.6667 & 0.6619 & 0.0749 \\
+GloVe & 0.7500 & 0.7500 & 0.6217 & 0.0749 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\vspace{0.3em}
+\textbf{Interpretation}
+\begin{itemize}
+  \item GloVe is better on analogy score.
+  \item Word2Vec is better on local-neighbor cosine quality.
+  \item Coverage is equal; downstream choice depends on objective.
+\end{itemize}
+\end{frame}
+
+\section{Task 5: DL Classification}
+
+\begin{frame}{Task 5 Experimental Design}
+\small
+\textbf{Architectures}
+\begin{itemize}
+  \item RNN, BiRNN, LSTM
+\end{itemize}
+
+\textbf{Feature families}
+\begin{itemize}
+  \item Count-SVD, TFIDF-SVD, PMI-SVD, Word2Vec, GloVe
+\end{itemize}
+
+\textbf{Total runs}
+\begin{itemize}
+  \item 15 neural runs (3x5) + baseline (LogReg + TFIDF)
+\end{itemize}
+
+\textbf{Primary metric}
+\[
+\fmacro = \frac{1}{C}\sum_{c=1}^{C}F1_c
+\]
+\end{frame}
+
+\begin{frame}{Task 5 Results}
+\small
+\begin{table}
+\centering
+\begin{tabular}{lrrr}
+\toprule
+Experiment & Accuracy & Macro-F1 & Weighted-F1 \\
+\midrule
+\texttt{lstm\_\_pmi\_svd} & 0.8225 & 0.5684 & 0.8594 \\
+\texttt{rnn\_\_pmi\_svd} & 0.8396 & 0.5678 & 0.8641 \\
+\texttt{birnn\_\_pmi\_svd} & 0.8170 & 0.5600 & 0.8541 \\
+\texttt{logreg\_baseline\_\_tfidf} & 0.8271 & 0.5588 & 0.8582 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\vspace{0.2em}
+\textbf{Best run:} \texttt{lstm\_\_pmi\_svd} by macro-F1.
+\end{frame}
+
+\begin{frame}{Task 5 Visualization}
+\centering
+\includegraphics[width=0.95\linewidth]{presentation_bundle_figures_task5_top10_macro_f1.png}
+\end{frame}
+
+\section{Task 6 + Extra UI}
+
+\begin{frame}{Task 6 Deliverables}
+\small
+\begin{itemize}
+  \item Consolidated report tables:
+  \begin{itemize}
+    \item \texttt{embedding\_comparison\_table.csv}
+    \item \texttt{dl\_results\_table.csv}
+  \end{itemize}
+  \item Report note artifact: \texttt{report\_artifacts.md}
+  \item Presentation bundle zip with figures/tables/summaries
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Extra Task: Interactive UI}
+\small
+\textbf{Primary UI:} Streamlit dashboard (\texttt{src/project3\_dashboard.py})
+\begin{itemize}
+  \item Overview and task tabs for Task 1--6 outputs
+  \item Embedding playground:
+  \begin{itemize}
+    \item custom nearest-neighbor queries
+    \item custom analogy solver
+    \item vector blending and semantic map (2D)
+  \end{itemize}
+  \item Read-only artifact browsing (no retraining from UI)
+\end{itemize}
+\end{frame}
+
+\section{Limitations and Conclusion}
+
+\begin{frame}{Limitations and Improvement Areas}
+\small
+\begin{itemize}
+  \item Sentiment dataset is highly imbalanced (positive dominates).
+  \item Intrinsic analogy set is relatively small and OOV-sensitive.
+  \item Some nearest-neighbor outputs are noisy due corpus artifacts.
+  \item Next steps:
+  \begin{itemize}
+    \item curated Azerbaijani analogy benchmark
+    \item better class balancing / reweighting
+    \item transformer baselines for Task 5
+  \end{itemize}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Conclusion}
+\small
+\begin{itemize}
+  \item All Project 3 tasks were implemented with reproducible outputs.
+  \item Word2Vec and GloVe both learned useful structure with different strengths.
+  \item Best downstream model: \texttt{lstm\_\_pmi\_svd} (\(\fmacro=0.5684\)).
+  \item UI enables interactive model/result exploration for presentation and grading.
+\end{itemize}
+
+\vspace{0.7em}
+\centering
+\Large Thank you! \\[0.3em]
+\normalsize Questions?
+\end{frame}
+
+\end{document}

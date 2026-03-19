@@ -1,0 +1,471 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{longtable}
+\usepackage{array}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{amsmath}
+\usepackage{float}
+\usepackage{tipa}
+\setlist{nosep}
+\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue}
+\DeclareUnicodeCharacter{0259}{\textschwa}
+\DeclareUnicodeCharacter{018F}{\textschwa}
+\graphicspath{
+  {../outputs/project3/report_figures/}
+  {outputs/project3/report_figures/}
+}
+
+% -----------------------------
+% Key numbers from run artifacts
+% -----------------------------
+\newcommand{\pThreeDocs}{31{,}842}
+\newcommand{\pThreeTokens}{11{,}905{,}937}
+\newcommand{\pThreeVocab}{586{,}674}
+\newcommand{\pThreeFrequent}{12{,}436}
+\newcommand{\pThreeRare}{398{,}599}
+
+\newcommand{\wTwoVocab}{122{,}930}
+\newcommand{\wTwoDim}{200}
+\newcommand{\wTwoHitK}{0.6667}
+\newcommand{\wTwoEval}{3}
+
+\newcommand{\gloveVocab}{122{,}930}
+\newcommand{\gloveDim}{200}
+\newcommand{\gloveHitK}{0.7500}
+\newcommand{\gloveEval}{4}
+
+\newcommand{\bestExp}{\texttt{lstm\_\_pmi\_svd}}
+\newcommand{\bestAcc}{0.8225}
+\newcommand{\bestMacro}{0.5684}
+\newcommand{\bestWeighted}{0.8594}
+
+\newcommand{\baseAcc}{0.8271}
+\newcommand{\baseMacro}{0.5588}
+\newcommand{\baseWeighted}{0.8582}
+
+\title{Project 3: Word Embeddings, Comparative Analysis,\\Deep Learning Sentiment Classification, and Interactive Results UI}
+\author{
+\textbf{Kamal Ahmadov} \and \textbf{Rufat Guliyev}
+}
+\date{Spring 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This report presents Project 3 for Azerbaijani NLP, covering six tasks: (1) corpus and matrix analysis, (2) Word2Vec training and intrinsic evaluation, (3) GloVe training and intrinsic evaluation, (4) side-by-side embedding comparison, (5) deep-learning sentiment experiments over a 3x5 grid (RNN/BiRNN/LSTM x Count/TF-IDF/PMI/Word2Vec/GloVe) with a baseline, and (6) report artifact generation. In addition, an interactive dashboard was built to explore outputs and embedding behavior through live word queries, analogy tests, and semantic maps.
+\end{abstract}
+
+\section{Motivation}
+The project addresses two connected problems in Azerbaijani NLP. First, we need high-quality word representations that capture lexical similarity and semantic relations beyond sparse token counts. Second, we need to evaluate whether these representations improve downstream sentiment classification when used with recurrent neural architectures. The work therefore combines intrinsic embedding analysis (neighbors and analogies) with extrinsic task performance (3-class sentiment prediction).
+
+\section{Method and Deliverables}
+Project 3 was implemented as a dedicated pipeline under \texttt{project3\_*} modules and executed through:
+\begin{verbatim}
+bash scripts/run_project3.sh
+\end{verbatim}
+
+Main outputs are stored in:
+\begin{itemize}
+    \item \texttt{outputs/project3/task1\_matrices}
+    \item \texttt{outputs/project3/task2\_word2vec}
+    \item \texttt{outputs/project3/task3\_glove}
+    \item \texttt{outputs/project3/task4\_compare}
+    \item \texttt{outputs/project3/task5\_dl}
+    \item \texttt{outputs/project3/task6\_report}
+\end{itemize}
+
+Core entry points:
+\begin{itemize}
+    \item \texttt{src/project3\_task1\_matrices.py}
+    \item \texttt{src/project3\_task2\_word2vec.py}
+    \item \texttt{src/project3\_task3\_glove.py}
+    \item \texttt{src/project3\_task4\_compare.py}
+    \item \texttt{src/project3\_task5\_dl.py}
+    \item \texttt{src/project3\_task6\_report.py}
+    \item \texttt{src/project3\_dashboard.py} (interactive Streamlit UI)
+\end{itemize}
+
+\section{Datasets and Experimental Setup}
+\subsection{Corpus for Tasks 1--3}
+\begin{itemize}
+    \item Source file: \texttt{data/raw/corpus.csv}
+    \item Provenance: same cleaned Azerbaijani corpus developed and used in Project 1 and Project 2.
+    \item Text column: \texttt{text}
+    \item Tokenization and sentence segmentation reuse existing project modules (\texttt{tokenize.py}, \texttt{sentence\_segment.py})
+\end{itemize}
+
+\subsection{Sentiment Dataset for Tasks 4--5}
+\begin{itemize}
+    \item Source files: \texttt{data/external/train.csv}, \texttt{data/external/test.csv}
+    \item Original dataset source: \href{https://huggingface.co/datasets/hajili/azerbaijani_review_sentiment_classification/}{hajili/azerbaijani\_review\_sentiment\_classification} (Hugging Face).
+    \item Note: local \texttt{train.csv}/\texttt{test.csv} are the project copies used by the pipeline.
+    \item Text column: \texttt{content}
+    \item Label column: \texttt{score}
+    \item Label mode: 3-class sentiment (\texttt{negative}, \texttt{neutral}, \texttt{positive})
+\end{itemize}
+
+\subsection{Reproducibility Notes}
+\begin{itemize}
+    \item Full dependency set in \texttt{requirements.txt} (notably \texttt{torch}, \texttt{scipy}, \texttt{scikit-learn}, \texttt{flask}, \texttt{streamlit}, \texttt{plotly}).
+    \item Imported \texttt{word2vec} and \texttt{GloVe} repositories are used for embedding training binaries.
+    \item A smoke mode exists for fast integrity checks:
+\begin{verbatim}
+bash scripts/run_project3.sh --smoke
+\end{verbatim}
+\end{itemize}
+
+\section{Task 1: Dataset and Matrix Analysis}
+\subsection{Method}
+Task 1 builds corpus-level statistics and two matrix views:
+\begin{itemize}
+    \item Term-document matrix (full sparse matrix + top-100 slice for visualization).
+    \item Word-word co-occurrence matrix (top-100 terms for tractability).
+    \item Frequency buckets:
+    \begin{itemize}
+        \item frequent words: count \(\geq 100\)
+        \item rare words: count \(\leq 2\)
+    \end{itemize}
+\end{itemize}
+
+Artifacts include:
+\texttt{summary.json}, \texttt{word\_frequency\_distribution.csv},
+\texttt{term\_document\_top\_matrix.csv}, \texttt{word\_word\_top\_matrix.csv}, and two heatmaps.
+
+\subsection{Results}
+\begin{table}[H]
+\centering
+\begin{tabular}{lr}
+\toprule
+\textbf{Metric} & \textbf{Value} \\
+\midrule
+Documents & \pThreeDocs \\
+Sentences & 813{,}319 \\
+Tokens & \pThreeTokens \\
+Vocabulary size & \pThreeVocab \\
+Frequent words (\(\geq 100\)) & \pThreeFrequent \\
+Rare words (\(\leq 2\)) & \pThreeRare \\
+\bottomrule
+\end{tabular}
+\caption{Task 1 dataset summary (\texttt{outputs/project3/task1\_matrices/summary.json}).}
+\label{tab:task1-summary}
+\end{table}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.92\linewidth]{task1_matrices_term_document_heatmap.png}
+    \caption{Task 1 term-document heatmap (log-scaled, top terms/docs).}
+    \label{fig:task1-term-doc}
+\end{figure}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.92\linewidth]{task1_matrices_word_word_heatmap.png}
+    \caption{Task 1 word-word co-occurrence heatmap (log-scaled, top terms).}
+    \label{fig:task1-word-word}
+\end{figure}
+
+\section{Task 2: Word2Vec Training and Analysis}
+\subsection{Method}
+Training used the imported \texttt{word2vec/} C implementation with shared tokenized corpus input:
+\begin{itemize}
+    \item Model: skip-gram
+    \item Dimension: 200
+    \item Window: 5
+    \item Negative sampling: 10
+    \item Min count: 5
+    \item Iterations: 10
+\end{itemize}
+
+Intrinsic evaluation:
+\begin{itemize}
+    \item Nearest-neighbor lookup for 10 target words.
+    \item Fixed analogy list with automatic OOV skipping.
+\end{itemize}
+
+\subsection{Results}
+\begin{table}[H]
+\centering
+\begin{tabular}{lr}
+\toprule
+\textbf{Metric} & \textbf{Word2Vec} \\
+\midrule
+Vocabulary size & \wTwoVocab \\
+Vector dimension & \wTwoDim \\
+Analogy questions (total) & 5 \\
+Analogy questions evaluated & \wTwoEval \\
+Analogy hit@1 & 0.6667 \\
+Analogy hit@k & \wTwoHitK \\
+\bottomrule
+\end{tabular}
+\caption{Task 2 summary (\texttt{outputs/project3/task2\_word2vec/summary.json}).}
+\label{tab:task2-summary}
+\end{table}
+
+Representative artifacts:
+\begin{itemize}
+    \item \texttt{outputs/project3/task2\_word2vec/vectors.txt}
+    \item \texttt{outputs/project3/task2\_word2vec/nearest\_neighbors.csv}
+    \item \texttt{outputs/project3/task2\_word2vec/analogy\_results.csv}
+\end{itemize}
+
+\subsection{Qualitative Synonym/Semantic Similarity Findings}
+The 10 target words were:
+\texttt{azərbaycan, şəhər, tarix, dövlət, dünya, insan, dil, elm, mədəniyyət, film}.
+
+Observed nearest-neighbor behavior:
+\begin{itemize}
+    \item Strong morphological/lemma consistency: \texttt{şəhər $\rightarrow$ şəhəri}, \texttt{tarix $\rightarrow$ tarixi}, \texttt{insan $\rightarrow$ insanın}, \texttt{dil $\rightarrow$ dili}.
+    \item Reasonable semantic relation in some cases: \texttt{dünya $\rightarrow$ avropa}.
+    \item Noticeable noise in others: \texttt{elm $\rightarrow$ 2016,400} and \texttt{azərbaycan $\rightarrow$ uzunömürlülər}.
+\end{itemize}
+
+Overall, Word2Vec showed good local structure for common lexical/morphological variants but still contained noisy neighbors for some targets.
+
+\subsection{Vector Arithmetic Analysis (Word2Vec)}
+Analogy evaluation shows both meaningful regularities and failure cases:
+\begin{itemize}
+    \item Correct: \texttt{kişi:qadın::oğlan:qız} (hit).
+    \item Correct: \texttt{bakı:azərbaycan::ankara:türkiyə} (hit).
+    \item Incorrect semantic relation: \texttt{ata:ana::oğul:qız} predicted \texttt{istərəm}.
+    \item OOV-limited cases were skipped (e.g., \texttt{ən\_böyük}, \texttt{daha\_pis}).
+\end{itemize}
+This indicates that geographical and gender analogies are partially captured, while more nuanced family/degree relations remain unstable.
+
+\section{Task 3: GloVe Training and Analysis}
+\subsection{Method}
+Training used the imported \texttt{GloVe/} C implementation:
+\begin{itemize}
+    \item Dimension: 200
+    \item Window size: 10
+    \item Min count: 5
+    \item Max iterations: 20
+    \item \(x_{\max}=10\), \(\eta=0.05\), \(\alpha=0.75\)
+\end{itemize}
+
+Evaluation follows the same nearest-neighbor and analogy protocol as Task 2.
+
+\subsection{Results}
+\begin{table}[H]
+\centering
+\begin{tabular}{lr}
+\toprule
+\textbf{Metric} & \textbf{GloVe} \\
+\midrule
+Vocabulary size & \gloveVocab \\
+Vector dimension & \gloveDim \\
+Analogy questions (total) & 5 \\
+Analogy questions evaluated & \gloveEval \\
+Analogy hit@1 & 0.7500 \\
+Analogy hit@k & \gloveHitK \\
+\bottomrule
+\end{tabular}
+\caption{Task 3 summary (\texttt{outputs/project3/task3\_glove/summary.json}).}
+\label{tab:task3-summary}
+\end{table}
+
+Representative artifacts:
+\begin{itemize}
+    \item \texttt{outputs/project3/task3\_glove/vectors.txt}
+    \item \texttt{outputs/project3/task3\_glove/vocab.txt}
+    \item \texttt{outputs/project3/task3\_glove/nearest\_neighbors.csv}
+    \item \texttt{outputs/project3/task3\_glove/analogy\_results.csv}
+\end{itemize}
+
+\subsection{Qualitative Synonym/Semantic Similarity Findings}
+For the same 10 target words, GloVe also learned strong morphological neighbors:
+\begin{itemize}
+    \item \texttt{şəhər $\rightarrow$ şəhəri}, \texttt{tarix $\rightarrow$ tarixi}, \texttt{insan $\rightarrow$ insanın}, \texttt{dil $\rightarrow$ dili}.
+    \item Domain-like relation: \texttt{elm $\rightarrow$ mədəniyyət}.
+    \item Noise/out-of-domain neighbors also appeared for some words (e.g., \texttt{azərbaycan $\rightarrow$ mars-print}).
+\end{itemize}
+
+Compared to Word2Vec, GloVe produced stronger analogy scores in this run but still exhibited noisy top neighbors for some targets.
+
+\subsection{Vector Arithmetic Analysis (GloVe)}
+Analogy behavior:
+\begin{itemize}
+    \item Correct: \texttt{kişi:qadın::oğlan:qız} (hit).
+    \item Correct: \texttt{bakı:azərbaycan::ankara:türkiyə} (hit).
+    \item Correct directional relation: \texttt{şimal:cənub::şərq:qərb} (hit).
+    \item Incorrect: \texttt{ata:ana::oğul:qız} predicted \texttt{istərəm}.
+\end{itemize}
+Patterns suggest that broad geographic/directional regularities are represented better than finer family-role analogies.
+
+\section{Task 4: Word2Vec vs GloVe Comparison}
+\subsection{Method}
+Task 4 compares Task 2 and Task 3 with consistent intrinsic metrics:
+\begin{itemize}
+    \item Analogy hit@1 and hit@k (from Task 2/3 summaries)
+    \item Average top-3 neighbor cosine
+    \item Coverage ratio on sentiment vocabulary from local \texttt{data/external/train.csv}+\texttt{test.csv} (project copy of the Hugging Face sentiment dataset above)
+\end{itemize}
+
+\subsection{Results}
+\begin{table}[H]
+\centering
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Model} & \textbf{Hit@1} & \textbf{Hit@k} & \textbf{Avg top-3 cosine} & \textbf{Coverage ratio} \\
+\midrule
+Word2Vec & 0.6667 & 0.6667 & 0.6619 & 0.0749 \\
+GloVe & 0.7500 & 0.7500 & 0.6217 & 0.0749 \\
+\bottomrule
+\end{tabular}
+\caption{Task 4 embedding comparison (\texttt{outputs/project3/task4\_compare/comparison.csv}).}
+\label{tab:task4-compare}
+\end{table}
+
+Interpretation:
+\begin{itemize}
+    \item GloVe wins analogy hit@k.
+    \item Word2Vec wins average neighbor cosine.
+    \item Coverage is identical for both models on this sentiment vocabulary.
+    \item Final choice depends on objective (analogy quality vs.\ local neighborhood geometry).
+\end{itemize}
+
+\section{Task 5: Deep Learning Sentiment Experiments (3x5 Grid)}
+\subsection{Method}
+Task 5 runs 15 neural experiments plus one baseline:
+\begin{itemize}
+    \item Architectures: RNN, BiRNN, LSTM
+    \item Feature families: \texttt{count\_svd}, \texttt{tfidf\_svd}, \texttt{pmi\_svd}, \texttt{word2vec}, \texttt{glove}
+    \item Baseline: Logistic Regression + TF-IDF
+    \item Primary metric: macro-F1
+    \item Early stopping with fixed seed (\(42\))
+\end{itemize}
+
+Dataset usage:
+\begin{itemize}
+    \item Train total: 127{,}537
+    \item Test total: 31{,}885
+    \item Effective split in run: 114{,}783 train / 12{,}754 val / 31{,}885 test
+    \item Label order: negative, neutral, positive
+\end{itemize}
+
+\subsection{Results}
+\begin{table}[H]
+\centering
+\begin{tabular}{llrrr}
+\toprule
+\textbf{Rank} & \textbf{Experiment} & \textbf{Accuracy} & \textbf{Macro-F1} & \textbf{Weighted-F1} \\
+\midrule
+1 & \texttt{lstm\_\_pmi\_svd} & 0.8225 & 0.5684 & 0.8594 \\
+2 & \texttt{rnn\_\_pmi\_svd} & 0.8396 & 0.5678 & 0.8641 \\
+3 & \texttt{birnn\_\_pmi\_svd} & 0.8170 & 0.5600 & 0.8541 \\
+4 & \texttt{logreg\_baseline\_\_tfidf} & 0.8271 & 0.5588 & 0.8582 \\
+5 & \texttt{lstm\_\_tfidf\_svd} & 0.8156 & 0.5488 & 0.8489 \\
+\bottomrule
+\end{tabular}
+\caption{Top Task 5 experiments by macro-F1 (\texttt{outputs/project3/task5\_dl/leaderboard.csv}).}
+\label{tab:task5-top}
+\end{table}
+
+Best overall configuration:
+\begin{itemize}
+    \item Experiment: \bestExp
+    \item Accuracy: \bestAcc
+    \item Macro-F1: \bestMacro
+    \item Weighted-F1: \bestWeighted
+\end{itemize}
+
+Baseline (LogReg + TF-IDF):
+\begin{itemize}
+    \item Accuracy: \baseAcc
+    \item Macro-F1: \baseMacro
+    \item Weighted-F1: \baseWeighted
+\end{itemize}
+
+\begin{figure}[H]
+    \centering
+    \includegraphics[width=0.92\linewidth]{presentation_bundle_figures_task5_top10_macro_f1.png}
+    \caption{Task 5 top experiments by macro-F1 (from presentation bundle).}
+    \label{fig:task5-top10}
+\end{figure}
+
+\noindent Additional Task 5 artifacts:
+\begin{itemize}
+    \item \texttt{outputs/project3/task5\_dl/metrics.csv}
+    \item \texttt{outputs/project3/task5\_dl/confusion\_matrices.json}
+    \item \texttt{outputs/project3/task5\_dl/classification\_reports.txt}
+\end{itemize}
+
+\section{Task 6: Consolidated Report Artifacts}
+Task 6 aggregates key outputs into report-ready tables and summary files:
+\begin{itemize}
+    \item \texttt{outputs/project3/task6\_report/embedding\_comparison\_table.csv}
+    \item \texttt{outputs/project3/task6\_report/dl\_results\_table.csv}
+    \item \texttt{outputs/project3/task6\_report/report\_artifacts.md}
+    \item \texttt{outputs/project3/task6\_report/summary.json}
+\end{itemize}
+
+Additionally, a presentation package is available at:
+\begin{itemize}
+    \item \texttt{outputs/project3/presentation\_bundle/}
+    \item \texttt{outputs/project3/presentation\_bundle.zip}
+\end{itemize}
+
+\section{Interactive UI and Exploration}
+Two interfaces are available:
+\begin{itemize}
+    \item \textbf{Primary:} Streamlit dashboard (\texttt{src/project3\_dashboard.py})
+    \item \textbf{Legacy:} Flask+HTML dashboard (\texttt{src/project3\_results\_ui.py}, \texttt{src/project3\_results\_ui.html})
+\end{itemize}
+
+Recommended launch command:
+\begin{verbatim}
+streamlit run src/project3_dashboard.py -- --output-root outputs/project3
+\end{verbatim}
+
+The Streamlit UI includes a \texttt{Playground} where users can:
+\begin{itemize}
+    \item query nearest neighbors for custom words,
+    \item run custom analogies (\(a:b::c:?\)),
+    \item inspect cosine similarity between typed words,
+    \item blend vectors interactively and inspect nearest results,
+    \item generate 2D semantic maps for custom word sets.
+\end{itemize}
+
+\section{Experiments and Error Analysis}
+\subsection{Main Experimental Outcomes}
+\begin{itemize}
+    \item Intrinsic embedding comparison favored GloVe on analogy hit@k, while Word2Vec led on average top-3 neighbor cosine.
+    \item In downstream sentiment experiments, the best system was \texttt{lstm\_\_pmi\_svd} with macro-F1 \bestMacro.
+    \item The required baseline (\texttt{logreg\_baseline\_\_tfidf}) was included and is close to the best neural run in macro-F1.
+\end{itemize}
+
+\subsection{Error Patterns}
+\begin{itemize}
+    \item OOV-driven skips in analogy sets reduce effective sample size for intrinsic evaluation.
+    \item Some nearest-neighbor lists include noisy tokens or cross-script artifacts, especially for high-frequency entities.
+    \item The sentiment dataset is strongly imbalanced toward the positive class, which limits neutral-class performance and lowers macro-F1.
+\end{itemize}
+
+\section{Discussion}
+\subsection{What Worked Well}
+\begin{itemize}
+    \item End-to-end reproducible pipeline with clearly separated task outputs.
+    \item Both Word2Vec and GloVe trained successfully on the same tokenized corpus.
+    \item Comparable intrinsic evaluation protocol enabled fair model comparison.
+    \item Full 3x5 deep-learning grid executed and summarized with baseline.
+    \item Outputs were transformed into report and presentation bundles.
+\end{itemize}
+
+\subsection{Observed Constraints}
+\begin{itemize}
+    \item The sentiment dataset is highly imbalanced toward the positive class, which suppresses neutral-class performance.
+    \item Intrinsic analogy set is intentionally small and includes OOV-sensitive items.
+    \item Embedding coverage of Task 5 model vocabulary for pre-trained vectors is limited in this run (reported in Task 5 summary metadata).
+\end{itemize}
+
+\section{Conclusion}
+Project 3 was completed with all requested tasks and artifacts:
+matrix analysis, Word2Vec/GloVe training and evaluation, comparative intrinsic analysis, full deep-learning grid, consolidated report outputs, and an interactive UI for result exploration. Final results show a clear tradeoff: GloVe leads on analogy hit@k while Word2Vec leads on neighborhood cosine quality; on downstream sentiment classification, the best run is \bestExp\ with macro-F1 \bestMacro.
+
+\end{document}
