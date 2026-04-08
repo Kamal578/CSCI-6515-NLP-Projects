@@ -10,3 +10,6 @@ flask
 scikit-learn
 langid
 pytest
+torch
+transformers
+datasets
