@@ -1,6 +1,9 @@
 # Project 4 README
 
-This file documents `Project 4, Task 2`: reading comprehension with a BiDAF span predictor using either pretrained GloVe embeddings or frozen BERT embeddings.
+This file documents the implemented `Project 4` deliverables currently in the repo:
+- `Task 1` report section: theoretical analysis of an open-source fine-tuned BERT sentiment model in `report/project4_report.tex`
+- `Task 2`: reading comprehension with a BiDAF span predictor using either pretrained GloVe embeddings or frozen BERT embeddings
+- `Extra Task`: a Streamlit UI for Project 4 report/results exploration in `src/project4_dashboard.py`
 
 ## Task 2 Goal
 - Train a reading-comprehension model that predicts answer start/end positions inside a context passage.
@@ -84,6 +87,25 @@ Useful environment variables:
 - `VAL_JSON=...`
 - `MAX_TRAIN_EXAMPLES=...`
 - `MAX_VAL_EXAMPLES=...`
+
+## Project 4 UI
+Launch the Streamlit dashboard:
+
+```bash
+bash scripts/run_project4_ui.sh
+```
+
+Direct command:
+
+```bash
+streamlit run src/project4_dashboard.py -- --output-root outputs/project4/task2_reading_comprehension --report-tex report/project4_report.tex
+```
+
+The dashboard includes:
+- Task 1 model-analysis cards for the chosen BERT sentiment model
+- Task 2 comparison charts for `glove` vs `bert`
+- a prediction inspector that compares both variants on the same validation examples
+- an artifact/runbook panel showing what is present and how to rerun experiments
 
 ## Output Files
 - `outputs/project4/task2_reading_comprehension/comparison.csv`
