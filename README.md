@@ -5,7 +5,7 @@ This repository contains coursework implementations for multiple NLP project ass
 The codebase currently includes:
 - `Project 1`: Azerbaijani Wikipedia corpus collection/cleaning and classic NLP pipeline components (tokenization, Zipf/Heaps, BPE, sentence segmentation, spellchecking).
 - `Project 2`: N-gram language modeling + smoothing, sentiment classification experiments, and sentence-boundary detection with logistic regression.
-- `Project 4`: Theoretical BERT sentiment analysis report section, reading comprehension with BiDAF using pretrained GloVe and frozen BERT embeddings on SQuAD 1.1, and a Streamlit results UI.
+- `Project 4`: Azerbaijani BERT sentiment fine-tuning, reading comprehension with BiDAF using pretrained GloVe and frozen BERT embeddings on SQuAD 1.1, and a Streamlit interactive UI with live inference.
 - `Project 3`: Word embedding pipeline (Word2Vec + GloVe), comparative intrinsic analysis, deep-learning sentiment benchmarks (RNN/BiRNN/LSTM), report artifact generation, and results UI.
 
 ### Project Readmes
@@ -23,6 +23,7 @@ The codebase currently includes:
 - `scripts/run_project1.sh` — Project 1 pipeline runner
 - `scripts/run_project2.sh` — Project 2 runner (Tasks 1, 2, 3, and 4 when required inputs are present)
 - `scripts/run_project3.sh` — Project 3 runner (Tasks 1..6; optional Streamlit UI launch with `--with-ui`, or legacy UI with `--with-legacy-ui`)
+- `scripts/run_project4_task1.sh` — Project 4 Task 1 runner for Azerbaijani BERT sentiment fine-tuning
 - `scripts/run_project4_task2.sh` — Project 4 Task 2 runner for GloVe/BERT reading comprehension experiments
 - `scripts/run_project4_ui.sh` — Project 4 Streamlit dashboard launcher
 
@@ -32,6 +33,6 @@ The codebase currently includes:
 
 ### Project 4 UI
 - `bash scripts/run_project4_ui.sh` — interactive Project 4 dashboard
-- `streamlit run src/project4_dashboard.py -- --output-root outputs/project4/task2_reading_comprehension --report-tex report/project4_report.tex` — direct launch command
+- `streamlit run src/project4_dashboard.py -- --sentiment-root outputs/project4/task1_sentiment --qa-root outputs/project4/task2_reading_comprehension --report-tex report/project4_report.tex` — direct launch command
 
 Start with the project-specific README above depending on the assignment you want to run.

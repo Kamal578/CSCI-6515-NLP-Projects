@@ -259,11 +259,20 @@ def _limit_dataset(dataset, max_examples: int | None, seed: int):
 def _split_train_validation(train_split, args: argparse.Namespace):
     if not 0.0 < args.validation_ratio < 0.5:
         raise ValueError("--validation_ratio must be between 0 and 0.5")
-    split = train_split.train_test_split(
-        test_size=args.validation_ratio,
-        seed=args.seed,
-        stratify_by_column="label",
+    label_counts = Counter(train_split["label"])
+    num_classes = len(label_counts)
+    requested_val_size = max(1, int(round(len(train_split) * args.validation_ratio)))
+    can_stratify = (
+        requested_val_size >= num_classes
+        and all(count >= 2 for count in label_counts.values())
     )
+    split_kwargs = {
+        "test_size": args.validation_ratio,
+        "seed": args.seed,
+    }
+    if can_stratify:
+        split_kwargs["stratify_by_column"] = "label"
+    split = train_split.train_test_split(**split_kwargs)
     train_dataset = _limit_dataset(split["train"], args.max_train_examples, args.seed)
     val_dataset = _limit_dataset(split["test"], args.max_val_examples, args.seed + 1)
     return train_dataset, val_dataset

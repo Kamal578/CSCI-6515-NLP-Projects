@@ -13,5 +13,3 @@ scikit-learn
 scipy
 torch
 pytest
-transformers
-datasets

@@ -1,95 +1,114 @@
 # Project 4 README
 
-This file documents the implemented `Project 4` deliverables currently in the repo:
-- `Task 1` report section: theoretical analysis of an open-source fine-tuned BERT sentiment model in `report/project4_report.tex`
-- `Task 2`: reading comprehension with a BiDAF span predictor using either pretrained GloVe embeddings or frozen BERT embeddings
-- `Extra Task`: a Streamlit UI for Project 4 report/results exploration in `src/project4_dashboard.py`
+Project 4 now includes the full assignment workflow:
 
-## Task 2 Goal
-- Train a reading-comprehension model that predicts answer start/end positions inside a context passage.
-- Compare two variants on `SQuAD 1.1`:
-  - `glove` — BiDAF with pretrained `glove.6B.100d`
-  - `bert` — BiDAF with frozen `bert-base-uncased` contextual word embeddings
-- Report `Exact Match (EM)` and `F1`.
+- `Task 1`: Azerbaijani sentiment analysis with a fine-tuned BERT classifier on `hajili/azerbaijani_review_sentiment_classification`
+- `Task 2`: reading comprehension with BiDAF using either trainable GloVe embeddings or frozen BERT embeddings
+- `Task 3`: a Streamlit UI with live inference for both tasks
+- `Task 4`: report source in `report/project4_report.tex`
 
-## Main Entry Point
-```bash
-.venv/bin/python -m src.project4_task2_reading_comprehension --variant compare
-```
+## Environment
 
-Key flags:
-- `--variant glove|bert|compare`
-- `--train_json` / `--val_json` to use local SQuAD-format JSON files instead of downloading SQuAD
-- `--cache_dir` for dataset/model/GloVe caches
-- `--glove_path` to point at an existing `glove.6B.100d.txt`
-- `--embedding_dim` to control the BERT projection size and, when using custom GloVe text vectors, the expected comparison dimension
-- `--max_train_examples`, `--max_val_examples`, `--epochs`, `--batch_size`
-- `--max_question_words`, `--context_window_words`, `--doc_stride_words`
-- `--medium` for an intermediate CPU-friendly run
-- `--log_every_steps` to print train/eval batch progress
-- `--smoke` for a tiny CPU-friendly run
-
-## Smoke Run
-Use this first to validate the pipeline quickly:
+The repo now expects a local `.venv` on macOS Apple Silicon:
 
 ```bash
-.venv/bin/python -m src.project4_task2_reading_comprehension \
-  --variant compare \
-  --smoke \
-  --max_train_examples 16 \
-  --max_val_examples 8 \
-  --out_dir outputs/project4/task2_reading_comprehension_smoke
+python3 -m venv .venv
+.venv/bin/pip install -r requirements.txt accelerate sentencepiece safetensors
 ```
 
-## Full Run
-This is much slower on CPU because the `bert` variant computes frozen contextual embeddings for every batch.
+PyTorch with `mps` support is used automatically when available. You can force CPU or MPS with `DEVICE=cpu` or `DEVICE=mps`.
+
+## Task 1: Azerbaijani Sentiment with BERT
+
+Main entry point:
 
 ```bash
-.venv/bin/python -m src.project4_task2_reading_comprehension \
-  --variant compare \
-  --epochs 4 \
-  --batch_size 16 \
-  --eval_batch_size 8 \
-  --context_window_words 160 \
-  --doc_stride_words 64 \
-  --out_dir outputs/project4/task2_reading_comprehension
+bash scripts/run_project4_task1.sh
 ```
 
-## Medium Run
-Use this when smoke is too small but a full compare run is too slow for interactive work:
+Useful environment variables:
+
+- `MODEL_NAME=google-bert/bert-base-multilingual-cased`
+- `MODEL_NAME=HPLT/hplt_bert_base_az TRUST_REMOTE_CODE=1`
+- `OUTPUT_DIR=outputs/project4/task1_sentiment`
+- `LABEL_MODE=score5|sentiment3|binary`
+- `DEVICE=auto|cpu|mps|cuda`
+- `SMOKE=1`
+- `MAX_TRAIN_EXAMPLES=...`
+- `MAX_VAL_EXAMPLES=...`
+- `MAX_TEST_EXAMPLES=...`
+- `GRAD_ACCUMULATION_STEPS=2`
+
+Direct command example:
 
 ```bash
-MEDIUM=1 bash scripts/run_project4_task2.sh
+.venv/bin/python -m src.project4_task1_sentiment \
+  --dataset_name hajili/azerbaijani_review_sentiment_classification \
+  --model_name google-bert/bert-base-multilingual-cased \
+  --device auto \
+  --output_dir outputs/project4/task1_sentiment
 ```
 
-Recommended first-pass workflow on CPU:
+Artifacts:
 
-```bash
-VARIANT=glove MEDIUM=1 bash scripts/run_project4_task2.sh
-VARIANT=bert MEDIUM=1 bash scripts/run_project4_task2.sh
-```
+- `outputs/project4/task1_sentiment/summary.json`
+- `outputs/project4/task1_sentiment/history.csv`
+- `outputs/project4/task1_sentiment/model/`
+- `outputs/project4/task1_sentiment/validation_predictions.json`
+- `outputs/project4/task1_sentiment/test_predictions.json`
 
-## Shell Runner
+Task 1 summary metadata documents:
+
+- model inputs and outputs
+- class labels
+- maximum input size
+- case sensitivity
+- morphology and agglutinative adaptation strategy
+
+## Task 2: Reading Comprehension with BiDAF + BERT
+
+Main entry point:
+
 ```bash
 bash scripts/run_project4_task2.sh
 ```
 
 Useful environment variables:
+
 - `VARIANT=glove|bert|compare`
+- `DEVICE=auto|cpu|mps|cuda`
 - `SMOKE=1`
 - `MEDIUM=1`
-- `OUT_DIR=...`
-- `CACHE_DIR=...`
-- `GLOVE_PATH=...`
-- `EMBEDDING_DIM=100`
-- `DEVICE=auto|cpu|cuda|mps`
-- `TRAIN_JSON=...`
-- `VAL_JSON=...`
+- `GRAD_ACCUMULATION_STEPS=2`
 - `MAX_TRAIN_EXAMPLES=...`
 - `MAX_VAL_EXAMPLES=...`
+- `TRAIN_JSON=...`
+- `VAL_JSON=...`
 
-## Project 4 UI
-Launch the Streamlit dashboard:
+Direct command example:
+
+```bash
+.venv/bin/python -m src.project4_task2_reading_comprehension \
+  --variant compare \
+  --device auto \
+  --out_dir outputs/project4/task2_reading_comprehension
+```
+
+Artifacts:
+
+- `outputs/project4/task2_reading_comprehension/comparison.csv`
+- `outputs/project4/task2_reading_comprehension/report_notes.md`
+- `outputs/project4/task2_reading_comprehension/glove/summary.json`
+- `outputs/project4/task2_reading_comprehension/glove/history.csv`
+- `outputs/project4/task2_reading_comprehension/glove/predictions.json`
+- `outputs/project4/task2_reading_comprehension/glove/vocab.json`
+- `outputs/project4/task2_reading_comprehension/bert/summary.json`
+- `outputs/project4/task2_reading_comprehension/bert/history.csv`
+- `outputs/project4/task2_reading_comprehension/bert/predictions.json`
+
+## Task 3: Interactive UI
+
+Launch the Streamlit app:
 
 ```bash
 bash scripts/run_project4_ui.sh
@@ -98,30 +117,37 @@ bash scripts/run_project4_ui.sh
 Direct command:
 
 ```bash
-streamlit run src/project4_dashboard.py -- --output-root outputs/project4/task2_reading_comprehension --report-tex report/project4_report.tex
+.venv/bin/streamlit run src/project4_dashboard.py -- \
+  --sentiment-root outputs/project4/task1_sentiment \
+  --qa-root outputs/project4/task2_reading_comprehension \
+  --report-tex report/project4_report.tex
 ```
 
-The dashboard includes:
-- Task 1 model-analysis cards for the chosen BERT sentiment model
-- Task 2 comparison charts for `glove` vs `bert`
-- a prediction inspector that compares both variants on the same validation examples
-- an artifact/runbook panel showing what is present and how to rerun experiments
+The UI provides:
 
-## Output Files
-- `outputs/project4/task2_reading_comprehension/comparison.csv`
-- `outputs/project4/task2_reading_comprehension/report_notes.md`
-- `outputs/project4/task2_reading_comprehension/glove/summary.json`
-- `outputs/project4/task2_reading_comprehension/glove/history.csv`
-- `outputs/project4/task2_reading_comprehension/glove/predictions.json`
-- `outputs/project4/task2_reading_comprehension/bert/summary.json`
-- `outputs/project4/task2_reading_comprehension/bert/history.csv`
-- `outputs/project4/task2_reading_comprehension/bert/predictions.json`
+- Azerbaijani sentiment prediction from raw text input
+- QA answer extraction from context and question input
+- run metrics and artifact inspection
+- report preview
 
-## Notes
-- The default dataset is `SQuAD 1.1` loaded through `datasets`.
-- The `bert` variant uses `bert-base-uncased` through `transformers`, but keeps all BERT weights frozen.
-- GloVe is loaded from `--glove_path` if provided; otherwise the script downloads `glove.6B.zip` and extracts `glove.6B.100d.txt` into the cache directory.
-- If you want to reuse the repo’s Project 3 vectors explicitly, you can pass `--glove_path outputs/project3/task3_glove/vectors.txt --embedding_dim 200`. That is optional and is not the default grading path.
-- Span evaluation is computed locally in the repo using SQuAD-style normalization, EM, and token F1.
-- Project 4 now reuses shared repo helpers from Project 3 for output writing and text-vector parsing so the embedding/file handling is consistent across projects.
-- The training loop now prints train/eval progress and writes `history.csv`, `summary.json`, and the best checkpoint incrementally after each epoch, so long runs are observable before completion.
+## Recommended Apple Silicon Workflow
+
+1. Run Task 1 smoke first:
+
+```bash
+SMOKE=1 DEVICE=mps bash scripts/run_project4_task1.sh
+```
+
+2. Run Task 2 smoke first:
+
+```bash
+SMOKE=1 DEVICE=mps bash scripts/run_project4_task2.sh
+```
+
+3. Move to larger runs only after the smoke checks pass.
+
+For `16 GB` RAM, start with:
+
+- Task 1 batch size `8` to `16`
+- Task 2 batch size `8` or less for the `bert` variant
+- `GRAD_ACCUMULATION_STEPS=2` or higher if memory gets tight

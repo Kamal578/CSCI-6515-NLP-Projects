@@ -59,6 +59,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--eval_batch_size", type=int, default=8)
     parser.add_argument("--learning_rate", type=float, default=2e-3)
     parser.add_argument("--weight_decay", type=float, default=1e-5)
+    parser.add_argument("--grad_accumulation_steps", type=int, default=1)
     parser.add_argument("--grad_clip", type=float, default=5.0)
     parser.add_argument("--patience", type=int, default=2)
     parser.add_argument("--hidden_size", type=int, default=64)
@@ -88,6 +89,7 @@ def _apply_smoke_defaults(args: argparse.Namespace) -> None:
     args.batch_size = min(args.batch_size, 4)
     args.eval_batch_size = min(args.eval_batch_size, 4)
     args.hidden_size = min(args.hidden_size, 16)
+    args.grad_accumulation_steps = max(1, args.grad_accumulation_steps)
     args.context_window_words = min(args.context_window_words, 48)
     args.doc_stride_words = min(args.doc_stride_words, 24)
     args.max_question_words = min(args.max_question_words, 24)
@@ -102,6 +104,7 @@ def _apply_medium_defaults(args: argparse.Namespace) -> None:
     args.batch_size = min(args.batch_size, 8)
     args.eval_batch_size = min(args.eval_batch_size, 8)
     args.hidden_size = min(args.hidden_size, 32)
+    args.grad_accumulation_steps = max(1, args.grad_accumulation_steps)
     args.context_window_words = min(args.context_window_words, 96)
     args.doc_stride_words = min(args.doc_stride_words, 48)
     args.max_question_words = min(args.max_question_words, 24)
@@ -131,6 +134,13 @@ def _set_seed(seed: int) -> None:
     torch.manual_seed(seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(seed)
+
+
+def _empty_device_cache(device: torch.device) -> None:
+    if device.type == "cuda":
+        torch.cuda.empty_cache()
+    elif device.type == "mps" and getattr(torch, "mps", None) is not None:
+        torch.mps.empty_cache()
 
 
 def _write_csv(path: Path, rows: list[dict], fieldnames: list[str]) -> None:
@@ -192,6 +202,7 @@ def _build_variant_summary(
             "eval_batch_size": args.eval_batch_size,
             "learning_rate": args.learning_rate,
             "weight_decay": args.weight_decay,
+            "grad_accumulation_steps": args.grad_accumulation_steps,
             "grad_clip": args.grad_clip,
             "patience": args.patience,
             "hidden_size": args.hidden_size,
@@ -223,6 +234,7 @@ def _build_variant_summary(
             "history_csv": str(history_path),
             "predictions_json": str(predictions_path),
             "checkpoint": str(checkpoint_path),
+            "vocab_json": str(variant_out_dir / "vocab.json") if vocab is not None else None,
         },
     }
     if vocab is not None:
@@ -460,15 +472,29 @@ def _train_variant(
     checkpoint_path = variant_out_dir / "model.pt"
     history_path = variant_out_dir / "history.csv"
     predictions_path = variant_out_dir / "predictions.json"
+    vocab_path = variant_out_dir / "vocab.json"
+    if vocab is not None:
+        write_json(vocab_path, vocab)
 
     for epoch in range(1, args.epochs + 1):
         print(f"[{variant}] epoch {epoch}/{args.epochs} started")
         model.train()
         running_loss = 0.0
         num_batches = 0
+        optimizer.zero_grad(set_to_none=True)
         for batch_idx, batch in enumerate(train_loader, start=1):
             batch = batch.to(device)
-            batch_loss = _training_step(model, batch, criterion, optimizer, args.grad_clip)
+            start_logits, end_logits = model(batch)
+            if batch.start_positions is None or batch.end_positions is None:
+                raise ValueError("Training batch is missing labels.")
+            loss = criterion(start_logits, batch.start_positions) + criterion(end_logits, batch.end_positions)
+            scaled_loss = loss / args.grad_accumulation_steps
+            scaled_loss.backward()
+            batch_loss = float(loss.item())
+            if batch_idx % args.grad_accumulation_steps == 0 or batch_idx == len(train_loader):
+                torch.nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
+                optimizer.step()
+                optimizer.zero_grad(set_to_none=True)
             running_loss += batch_loss
             num_batches += 1
             if batch_idx == 1 or batch_idx % max(1, args.log_every_steps) == 0 or batch_idx == len(train_loader):
@@ -479,6 +505,7 @@ def _train_variant(
 
         train_loss = running_loss / max(1, num_batches)
         print(f"[{variant}] epoch {epoch}/{args.epochs} train_loss={train_loss:.4f}")
+        _empty_device_cache(device)
         val_metrics, val_records = _evaluate(
             model=model,
             dataloader=val_loader,
@@ -488,6 +515,7 @@ def _train_variant(
             variant=variant,
             log_every_steps=args.log_every_steps,
         )
+        _empty_device_cache(device)
         history.append(
             {
                 "epoch": epoch,
@@ -633,6 +661,8 @@ def main() -> None:
         raise ValueError("--doc_stride_words must be > 0")
     if args.max_question_words <= 0:
         raise ValueError("--max_question_words must be > 0")
+    if args.grad_accumulation_steps <= 0:
+        raise ValueError("--grad_accumulation_steps must be > 0")
     _set_seed(args.seed)
     device = _resolve_device(args.device)
 
