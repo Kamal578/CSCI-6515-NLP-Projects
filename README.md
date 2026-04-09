@@ -6,10 +6,13 @@ The codebase currently includes:
 - `Project 1`: Azerbaijani Wikipedia corpus collection/cleaning and classic NLP pipeline components (tokenization, Zipf/Heaps, BPE, sentence segmentation, spellchecking).
 - `Project 2`: N-gram language modeling + smoothing, sentiment classification experiments, and sentence-boundary detection with logistic regression.
 - `Project 4`: Reading comprehension with BiDAF using pretrained GloVe and frozen BERT embeddings on SQuAD 1.1.
+- `Project 3`: Word embedding pipeline (Word2Vec + GloVe), comparative intrinsic analysis, deep-learning sentiment benchmarks (RNN/BiRNN/LSTM), report artifact generation, and results UI.
 
 ### Project Readmes
 - `proj1_readme.md` — Project 1 setup, pipeline, scripts, and outputs
 - `proj2_readme.md` — Project 2 task-by-task methods, commands, outputs, and reported results
+- `proj3_readme.md` — Project 3 setup, pipelines, outputs, UI, and report artifacts
+- `proj3_statement.md` — Project 3 assignment statement and requirements
 - `proj4_readme.md` — Project 4 Task 2 setup, commands, outputs, and QA model comparison
 
 ### Notes on `src/` Naming
@@ -19,6 +22,11 @@ The codebase currently includes:
 ### Runners
 - `scripts/run_project1.sh` — Project 1 pipeline runner
 - `scripts/run_project2.sh` — Project 2 runner (Tasks 1, 2, 3, and 4 when required inputs are present)
+- `scripts/run_project3.sh` — Project 3 runner (Tasks 1..6; optional Streamlit UI launch with `--with-ui`, or legacy UI with `--with-legacy-ui`)
 - `scripts/run_project4_task2.sh` — Project 4 Task 2 runner for GloVe/BERT reading comprehension experiments
+
+### Project 3 UI
+- `streamlit run src/project3_dashboard.py -- --output-root outputs/project3` — interactive Project 3 dashboard
+- `python3 -m src.project3_results_ui --output-root outputs/project3 --host 127.0.0.1 --port 5060` — legacy Flask/HTML dashboard
 
 Start with the project-specific README above depending on the assignment you want to run.

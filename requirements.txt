@@ -7,9 +7,11 @@ pandas
 matplotlib
 langid
 flask
+streamlit
+plotly
 scikit-learn
-langid
-pytest
+scipy
 torch
+pytest
 transformers
 datasets

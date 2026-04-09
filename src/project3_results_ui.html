@@ -1,0 +1,251 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Project 3 Results</title>
+  <style>
+    :root {
+      --bg: #f3f6f7;
+      --bg-accent: #e6ecef;
+      --panel: #ffffff;
+      --ink: #132327;
+      --muted: #567077;
+      --brand: #14505c;
+      --brand-2: #c47a3a;
+      --line: #d7e0e3;
+      --ok: #0a7a4a;
+      --warn: #a05a1b;
+      --err: #9f2f2f;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "Avenir Next", "Segoe UI", sans-serif;
+      color: var(--ink);
+      background: radial-gradient(circle at 10% 10%, #ffffff 0%, var(--bg) 45%, var(--bg-accent) 100%);
+    }
+    .wrap {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 18px;
+    }
+    .hero {
+      background: linear-gradient(135deg, #0f5562 0%, #2c7482 45%, #cf8652 100%);
+      color: #fff;
+      border-radius: 14px;
+      padding: 18px 20px;
+      box-shadow: 0 12px 24px rgba(18, 39, 46, 0.16);
+    }
+    .hero h1 {
+      margin: 0 0 6px;
+      font-size: 28px;
+      letter-spacing: .2px;
+    }
+    .hero p {
+      margin: 0;
+      color: #ecf6f8;
+    }
+    .grid {
+      margin-top: 16px;
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
+    }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      box-shadow: 0 3px 8px rgba(15, 37, 44, 0.06);
+    }
+    .card h3 {
+      margin: 0 0 8px;
+      color: var(--brand);
+      font-size: 15px;
+    }
+    .metric {
+      font-size: 24px;
+      font-weight: 700;
+      line-height: 1.1;
+    }
+    .meta {
+      color: var(--muted);
+      font-size: 12px;
+      margin-top: 4px;
+    }
+    .tabs {
+      margin-top: 14px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .tab-btn {
+      border: 1px solid var(--line);
+      background: #fff;
+      color: var(--brand);
+      padding: 8px 12px;
+      border-radius: 999px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: .15s ease-in-out;
+    }
+    .tab-btn.active {
+      background: var(--brand);
+      color: #fff;
+      border-color: var(--brand);
+      transform: translateY(-1px);
+    }
+    .panel {
+      margin-top: 10px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 14px;
+      min-height: 340px;
+    }
+    .hidden { display: none; }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 8px;
+      font-size: 13px;
+    }
+    th, td {
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      padding: 7px 6px;
+      vertical-align: top;
+    }
+    th { color: var(--brand); background: #f7fbfc; position: sticky; top: 0; }
+    .scroll { max-height: 420px; overflow: auto; border: 1px solid var(--line); border-radius: 10px; }
+    .pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; }
+    .ok { background: #def5ea; color: var(--ok); }
+    .warn { background: #fff0df; color: var(--warn); }
+    .err { background: #ffe6e6; color: var(--err); }
+    pre {
+      white-space: pre-wrap;
+      background: #f9fbfb;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      font-size: 13px;
+      max-height: 420px;
+      overflow: auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="hero">
+      <h1>Project 3 Dashboard</h1>
+      <p>Word embeddings, comparative analysis, deep-learning experiments, and report artifacts.</p>
+    </div>
+
+    <div class="grid" id="summaryCards"></div>
+
+    <div class="tabs">
+      <button class="tab-btn active" data-tab="task1">Task 1</button>
+      <button class="tab-btn" data-tab="task2">Task 2</button>
+      <button class="tab-btn" data-tab="task3">Task 3</button>
+      <button class="tab-btn" data-tab="task4">Task 4</button>
+      <button class="tab-btn" data-tab="task5">Task 5</button>
+      <button class="tab-btn" data-tab="task6">Task 6</button>
+    </div>
+
+    <div class="panel" id="task1"></div>
+    <div class="panel hidden" id="task2"></div>
+    <div class="panel hidden" id="task3"></div>
+    <div class="panel hidden" id="task4"></div>
+    <div class="panel hidden" id="task5"></div>
+    <div class="panel hidden" id="task6"></div>
+  </div>
+
+  <script>
+    function toTable(rows) {
+      if (!rows || !rows.length) return "<p>No data.</p>";
+      const keys = Object.keys(rows[0]);
+      const head = `<tr>${keys.map(k => `<th>${k}</th>`).join("")}</tr>`;
+      const body = rows.map(r => `<tr>${keys.map(k => `<td>${String(r[k] ?? "")}</td>`).join("")}</tr>`).join("");
+      return `<div class="scroll"><table><thead>${head}</thead><tbody>${body}</tbody></table></div>`;
+    }
+
+    function card(title, value, meta) {
+      return `<div class="card"><h3>${title}</h3><div class="metric">${value}</div><div class="meta">${meta || ""}</div></div>`;
+    }
+
+    async function load() {
+      const [overviewRes, t4Res, t5Res, freqRes] = await Promise.all([
+        fetch("/api/overview"),
+        fetch("/api/table/task4"),
+        fetch("/api/table/task5"),
+        fetch("/api/table/task1_freq")
+      ]);
+
+      const overview = await overviewRes.json();
+      const task4Rows = (await t4Res.json()).rows || [];
+      const task5Rows = (await t5Res.json()).rows || [];
+      const freqRows = (await freqRes.json()).rows || [];
+
+      const cards = [];
+      cards.push(card("Task 1 Vocab", overview.task1?.dataset?.vocabulary_size ?? "n/a", "Vocabulary size"));
+      cards.push(card("Word2Vec hit@k", (overview.task2?.analogy_summary?.hit_at_k ?? 0).toFixed ? (overview.task2.analogy_summary.hit_at_k).toFixed(4) : "n/a", "Analogy"));
+      cards.push(card("GloVe hit@k", (overview.task3?.analogy_summary?.hit_at_k ?? 0).toFixed ? (overview.task3.analogy_summary.hit_at_k).toFixed(4) : "n/a", "Analogy"));
+      cards.push(card("Task 5 Best", overview.task5?.best_overall?.experiment_key ?? "n/a", "Top leaderboard run"));
+      document.getElementById("summaryCards").innerHTML = cards.join("");
+
+      document.getElementById("task1").innerHTML = `
+        <h3>Dataset + Matrices</h3>
+        <p><span class="pill ok">Docs</span> ${overview.task1?.dataset?.num_docs ?? "n/a"} |
+           <span class="pill ok">Tokens</span> ${overview.task1?.dataset?.num_tokens ?? "n/a"} |
+           <span class="pill ok">Vocab</span> ${overview.task1?.dataset?.vocabulary_size ?? "n/a"}</p>
+        <h4>Top Frequency Rows</h4>
+        ${toTable(freqRows.slice(0, 30))}
+      `;
+
+      document.getElementById("task2").innerHTML = `
+        <h3>Word2Vec Summary</h3>
+        <pre>${JSON.stringify(overview.task2 || {}, null, 2)}</pre>
+      `;
+
+      document.getElementById("task3").innerHTML = `
+        <h3>GloVe Summary</h3>
+        <pre>${JSON.stringify(overview.task3 || {}, null, 2)}</pre>
+      `;
+
+      document.getElementById("task4").innerHTML = `
+        <h3>Embedding Comparison Table</h3>
+        ${toTable(task4Rows)}
+        <h4>Summary</h4>
+        <pre>${JSON.stringify(overview.task4 || {}, null, 2)}</pre>
+      `;
+
+      document.getElementById("task5").innerHTML = `
+        <h3>DL Leaderboard</h3>
+        ${toTable(task5Rows.slice(0, 30))}
+        <h4>Task 5 Summary</h4>
+        <pre>${JSON.stringify(overview.task5 || {}, null, 2)}</pre>
+      `;
+
+      document.getElementById("task6").innerHTML = `
+        <h3>Report Artifacts</h3>
+        <pre>${JSON.stringify(overview.task6 || {}, null, 2)}</pre>
+      `;
+    }
+
+    document.querySelectorAll(".tab-btn").forEach(btn => {
+      btn.addEventListener("click", () => {
+        document.querySelectorAll(".tab-btn").forEach(b => b.classList.remove("active"));
+        btn.classList.add("active");
+        const tab = btn.getAttribute("data-tab");
+        document.querySelectorAll(".panel").forEach(p => p.classList.add("hidden"));
+        document.getElementById(tab).classList.remove("hidden");
+      });
+    });
+
+    load().catch(err => {
+      document.getElementById("task1").innerHTML = `<p class="pill err">Failed to load UI data: ${String(err)}</p>`;
+    });
+  </script>
+</body>
+</html>
