@@ -35,6 +35,7 @@ from .project4_task2_qa_metrics import (
     select_best_span,
 )
 from .project4_task2_qa_model import FrozenBertBidafQaModel, GloveBidafQaModel
+from .project3_common import ensure_dir, write_json
 
 
 def parse_args() -> argparse.Namespace:
@@ -72,6 +73,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", choices=["auto", "cpu", "cuda", "mps"], default="auto")
+    parser.add_argument("--medium", action="store_true", help="Run a medium-size CPU-friendly configuration.")
+    parser.add_argument("--log_every_steps", type=int, default=25, help="Log every N train/eval batches.")
     parser.add_argument("--smoke", action="store_true", help="Run a tiny CPU-friendly smoke configuration.")
     return parser.parse_args()
 
@@ -87,6 +90,20 @@ def _apply_smoke_defaults(args: argparse.Namespace) -> None:
     args.hidden_size = min(args.hidden_size, 16)
     args.context_window_words = min(args.context_window_words, 48)
     args.doc_stride_words = min(args.doc_stride_words, 24)
+    args.max_question_words = min(args.max_question_words, 24)
+
+
+def _apply_medium_defaults(args: argparse.Namespace) -> None:
+    if not args.medium or args.smoke:
+        return
+    args.max_train_examples = 512 if args.max_train_examples is None else args.max_train_examples
+    args.max_val_examples = 128 if args.max_val_examples is None else args.max_val_examples
+    args.epochs = min(args.epochs, 2)
+    args.batch_size = min(args.batch_size, 8)
+    args.eval_batch_size = min(args.eval_batch_size, 8)
+    args.hidden_size = min(args.hidden_size, 32)
+    args.context_window_words = min(args.context_window_words, 96)
+    args.doc_stride_words = min(args.doc_stride_words, 48)
     args.max_question_words = min(args.max_question_words, 24)
 
 
@@ -116,11 +133,6 @@ def _set_seed(seed: int) -> None:
         torch.cuda.manual_seed_all(seed)
 
 
-def _write_json(path: Path, payload: dict) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
-
-
 def _write_csv(path: Path, rows: list[dict], fieldnames: list[str]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as f:
@@ -136,6 +148,90 @@ def _serialize_predictions(path: Path, records: list[SquadMetricRecord]) -> None
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
 
 
+def _build_variant_summary(
+    variant: str,
+    train_examples: list[TokenizedQaExample],
+    val_examples: list[TokenizedQaExample],
+    train_windows: list,
+    val_windows: list,
+    args: argparse.Namespace,
+    device: torch.device,
+    history: list[dict[str, float | int]],
+    best_epoch: int,
+    best_metrics: dict[str, float],
+    variant_out_dir: Path,
+    checkpoint_path: Path,
+    history_path: Path,
+    predictions_path: Path,
+    vocab: dict[str, int] | None,
+    loader_metadata: dict[str, object],
+    status: str,
+) -> dict[str, object]:
+    summary = {
+        "task": "Project 4 Task 2 - Reading comprehension",
+        "variant": variant,
+        "status": status,
+        "dataset": {
+            "source": "local_json" if args.train_json and args.val_json else "squad",
+            "train_examples": len(train_examples),
+            "val_examples": len(val_examples),
+            "train_windows": len(train_windows),
+            "val_windows": len(val_windows),
+            "train_batches": loader_metadata["num_train_batches"],
+            "val_batches": loader_metadata["num_val_batches"],
+        },
+        "config": {
+            "variant": variant,
+            "train_json": args.train_json,
+            "val_json": args.val_json,
+            "cache_dir": args.cache_dir,
+            "glove_path": args.glove_path,
+            "bert_model_name": args.bert_model_name,
+            "epochs": args.epochs,
+            "batch_size": args.batch_size,
+            "eval_batch_size": args.eval_batch_size,
+            "learning_rate": args.learning_rate,
+            "weight_decay": args.weight_decay,
+            "grad_clip": args.grad_clip,
+            "patience": args.patience,
+            "hidden_size": args.hidden_size,
+            "dropout": args.dropout,
+            "embedding_dim": args.embedding_dim,
+            "max_question_words": args.max_question_words,
+            "context_window_words": args.context_window_words,
+            "doc_stride_words": args.doc_stride_words,
+            "max_answer_words": args.max_answer_words,
+            "bert_max_length": args.bert_max_length,
+            "seed": args.seed,
+            "device": str(device),
+            "medium": bool(args.medium),
+            "smoke": bool(args.smoke),
+            "log_every_steps": args.log_every_steps,
+        },
+        "training": {
+            "best_epoch": best_epoch,
+            "history_rows": len(history),
+            "best_exact_match": best_metrics["exact_match"],
+            "best_f1": best_metrics["f1"],
+            "latest_epoch": int(history[-1]["epoch"]) if history else 0,
+            "latest_train_loss": float(history[-1]["train_loss"]) if history else None,
+            "latest_val_exact_match": float(history[-1]["val_exact_match"]) if history else None,
+            "latest_val_f1": float(history[-1]["val_f1"]) if history else None,
+        },
+        "artifacts": {
+            "summary_json": str(variant_out_dir / "summary.json"),
+            "history_csv": str(history_path),
+            "predictions_json": str(predictions_path),
+            "checkpoint": str(checkpoint_path),
+        },
+    }
+    if vocab is not None:
+        summary["vocab"] = {"size": len(vocab), "min_word_freq": args.min_word_freq}
+    if "glove_stats" in loader_metadata:
+        summary["glove"] = loader_metadata["glove_stats"]
+    return summary
+
+
 def _prepare_tokenized_splits(args: argparse.Namespace) -> tuple[list[TokenizedQaExample], list[TokenizedQaExample]]:
     train_raw, val_raw = load_squad_splits(
         train_json=args.train_json,
@@ -148,6 +244,12 @@ def _prepare_tokenized_splits(args: argparse.Namespace) -> tuple[list[TokenizedQ
     val_tokenized = [tokenize_qa_example(example, args.max_question_words) for example in val_raw]
     train_tokenized = [example for example in train_tokenized if example.answer_word_spans]
     val_tokenized = [example for example in val_tokenized if example.answer_word_spans]
+    print(
+        "Prepared tokenized QA splits:",
+        f"train_examples={len(train_tokenized)}",
+        f"val_examples={len(val_tokenized)}",
+        f"source={'local_json' if args.train_json and args.val_json else 'squad'}",
+    )
     return train_tokenized, val_tokenized
 
 
@@ -222,6 +324,8 @@ def _build_dataloaders(
         num_workers=args.num_workers,
         collate_fn=collate,
     )
+    metadata["num_train_batches"] = len(train_loader)
+    metadata["num_val_batches"] = len(val_loader)
     return train_loader, val_loader, vocab, metadata
 
 
@@ -271,14 +375,18 @@ def _evaluate(
     example_lookup: dict[str, TokenizedQaExample],
     device: torch.device,
     max_answer_words: int,
+    variant: str,
+    log_every_steps: int,
 ) -> tuple[dict[str, float], list[SquadMetricRecord]]:
     model.eval()
     best_predictions: dict[str, tuple[float, str]] = {}
 
     with torch.no_grad():
-        for batch in dataloader:
+        for batch_idx, batch in enumerate(dataloader, start=1):
             batch = batch.to(device)
             start_logits, end_logits = model(batch)
+            if batch_idx == 1 or batch_idx % max(1, log_every_steps) == 0 or batch_idx == len(dataloader):
+                print(f"[{variant}] eval batch {batch_idx}/{len(dataloader)}")
             for row_idx, question_id in enumerate(batch.question_ids):
                 local_start, local_end, score = select_best_span(
                     start_logits[row_idx].detach().cpu(),
@@ -326,36 +434,59 @@ def _train_variant(
         raise RuntimeError(f"No training windows were created for variant={variant}.")
     if not val_windows:
         raise RuntimeError(f"No validation windows were created for variant={variant}.")
+    print(
+        f"[{variant}] built windows:",
+        f"train_windows={len(train_windows)}",
+        f"val_windows={len(val_windows)}",
+    )
 
     train_loader, val_loader, vocab, loader_metadata = _build_dataloaders(variant, train_windows, val_windows, args)
+    print(
+        f"[{variant}] dataloaders ready:",
+        f"train_batches={len(train_loader)}",
+        f"val_batches={len(val_loader)}",
+    )
     model = _build_model(variant, loader_metadata, args).to(device)
     optimizer = AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
     criterion = nn.CrossEntropyLoss()
 
     example_lookup = {example.question_id: example for example in val_examples}
     history: list[dict[str, float | int]] = []
-    best_state: dict[str, torch.Tensor] | None = None
     best_metrics: dict[str, float] = {"exact_match": 0.0, "f1": float("-inf"), "num_examples": 0}
     best_records: list[SquadMetricRecord] = []
     best_epoch = 0
     epochs_without_improvement = 0
+    variant_out_dir.mkdir(parents=True, exist_ok=True)
+    checkpoint_path = variant_out_dir / "model.pt"
+    history_path = variant_out_dir / "history.csv"
+    predictions_path = variant_out_dir / "predictions.json"
 
     for epoch in range(1, args.epochs + 1):
+        print(f"[{variant}] epoch {epoch}/{args.epochs} started")
         model.train()
         running_loss = 0.0
         num_batches = 0
-        for batch in train_loader:
+        for batch_idx, batch in enumerate(train_loader, start=1):
             batch = batch.to(device)
-            running_loss += _training_step(model, batch, criterion, optimizer, args.grad_clip)
+            batch_loss = _training_step(model, batch, criterion, optimizer, args.grad_clip)
+            running_loss += batch_loss
             num_batches += 1
+            if batch_idx == 1 or batch_idx % max(1, args.log_every_steps) == 0 or batch_idx == len(train_loader):
+                print(
+                    f"[{variant}] epoch {epoch}/{args.epochs} "
+                    f"train batch {batch_idx}/{len(train_loader)} loss={batch_loss:.4f}"
+                )
 
         train_loss = running_loss / max(1, num_batches)
+        print(f"[{variant}] epoch {epoch}/{args.epochs} train_loss={train_loss:.4f}")
         val_metrics, val_records = _evaluate(
             model=model,
             dataloader=val_loader,
             example_lookup=example_lookup,
             device=device,
             max_answer_words=args.max_answer_words,
+            variant=variant,
+            log_every_steps=args.log_every_steps,
         )
         history.append(
             {
@@ -366,83 +497,72 @@ def _train_variant(
             }
         )
         if val_metrics["f1"] > best_metrics["f1"]:
-            best_state = {key: value.detach().cpu().clone() for key, value in model.state_dict().items()}
             best_metrics = val_metrics
             best_records = val_records
             best_epoch = epoch
             epochs_without_improvement = 0
+            torch.save({key: value.detach().cpu() for key, value in model.state_dict().items()}, checkpoint_path)
+            _serialize_predictions(predictions_path, best_records)
+            print(
+                f"[{variant}] new best at epoch {epoch}: "
+                f"val_em={val_metrics['exact_match']:.4f} val_f1={val_metrics['f1']:.4f}"
+            )
         else:
             epochs_without_improvement += 1
-            if epochs_without_improvement >= args.patience:
-                break
+            print(
+                f"[{variant}] no improvement at epoch {epoch}: "
+                f"val_em={val_metrics['exact_match']:.4f} val_f1={val_metrics['f1']:.4f} "
+                f"(patience {epochs_without_improvement}/{args.patience})"
+            )
+        _write_csv(history_path, history, ["epoch", "train_loss", "val_exact_match", "val_f1"])
+        write_json(
+            variant_out_dir / "summary.json",
+            _build_variant_summary(
+                variant=variant,
+                train_examples=train_examples,
+                val_examples=val_examples,
+                train_windows=train_windows,
+                val_windows=val_windows,
+                args=args,
+                device=device,
+                history=history,
+                best_epoch=best_epoch,
+                best_metrics=best_metrics,
+                variant_out_dir=variant_out_dir,
+                checkpoint_path=checkpoint_path,
+                history_path=history_path,
+                predictions_path=predictions_path,
+                vocab=vocab,
+                loader_metadata=loader_metadata,
+                status="running",
+            ),
+        )
+        if epochs_without_improvement >= args.patience:
+            break
 
-    if best_state is None:
+    if best_epoch == 0:
         raise RuntimeError(f"Training did not produce a best state for variant={variant}.")
 
-    variant_out_dir.mkdir(parents=True, exist_ok=True)
-    checkpoint_path = variant_out_dir / "model.pt"
-    torch.save(best_state, checkpoint_path)
-    history_path = variant_out_dir / "history.csv"
-    _write_csv(history_path, history, ["epoch", "train_loss", "val_exact_match", "val_f1"])
-    predictions_path = variant_out_dir / "predictions.json"
-    _serialize_predictions(predictions_path, best_records)
-
-    summary = {
-        "task": "Project 4 Task 2 - Reading comprehension",
-        "variant": variant,
-        "dataset": {
-            "source": "local_json" if args.train_json and args.val_json else "squad",
-            "train_examples": len(train_examples),
-            "val_examples": len(val_examples),
-            "train_windows": len(train_windows),
-            "val_windows": len(val_windows),
-        },
-        "config": {
-            "variant": variant,
-            "train_json": args.train_json,
-            "val_json": args.val_json,
-            "cache_dir": args.cache_dir,
-            "glove_path": args.glove_path,
-            "bert_model_name": args.bert_model_name,
-            "epochs": args.epochs,
-            "batch_size": args.batch_size,
-            "eval_batch_size": args.eval_batch_size,
-            "learning_rate": args.learning_rate,
-            "weight_decay": args.weight_decay,
-            "grad_clip": args.grad_clip,
-            "patience": args.patience,
-            "hidden_size": args.hidden_size,
-            "dropout": args.dropout,
-            "embedding_dim": args.embedding_dim,
-            "max_question_words": args.max_question_words,
-            "context_window_words": args.context_window_words,
-            "doc_stride_words": args.doc_stride_words,
-            "max_answer_words": args.max_answer_words,
-            "bert_max_length": args.bert_max_length,
-            "seed": args.seed,
-            "device": str(device),
-            "smoke": bool(args.smoke),
-        },
-        "training": {
-            "best_epoch": best_epoch,
-            "history_rows": len(history),
-            "best_exact_match": best_metrics["exact_match"],
-            "best_f1": best_metrics["f1"],
-        },
-        "artifacts": {
-            "summary_json": str(variant_out_dir / "summary.json"),
-            "history_csv": str(history_path),
-            "predictions_json": str(predictions_path),
-            "checkpoint": str(checkpoint_path),
-        },
-    }
-    if vocab is not None:
-        summary["vocab"] = {"size": len(vocab), "min_word_freq": args.min_word_freq}
-    if "glove_stats" in loader_metadata:
-        summary["glove"] = loader_metadata["glove_stats"]
-
-    summary_path = variant_out_dir / "summary.json"
-    _write_json(summary_path, summary)
+    summary = _build_variant_summary(
+        variant=variant,
+        train_examples=train_examples,
+        val_examples=val_examples,
+        train_windows=train_windows,
+        val_windows=val_windows,
+        args=args,
+        device=device,
+        history=history,
+        best_epoch=best_epoch,
+        best_metrics=best_metrics,
+        variant_out_dir=variant_out_dir,
+        checkpoint_path=checkpoint_path,
+        history_path=history_path,
+        predictions_path=predictions_path,
+        vocab=vocab,
+        loader_metadata=loader_metadata,
+        status="completed",
+    )
+    write_json(variant_out_dir / "summary.json", summary)
     print(
         f"[{variant}] best_epoch={best_epoch} "
         f"val_em={best_metrics['exact_match']:.4f} val_f1={best_metrics['f1']:.4f} "
@@ -506,6 +626,7 @@ def _write_comparison(
 def main() -> None:
     args = parse_args()
     _apply_smoke_defaults(args)
+    _apply_medium_defaults(args)
     if args.context_window_words <= 0:
         raise ValueError("--context_window_words must be > 0")
     if args.doc_stride_words <= 0:
@@ -515,8 +636,7 @@ def main() -> None:
     _set_seed(args.seed)
     device = _resolve_device(args.device)
 
-    out_dir = Path(args.out_dir)
-    out_dir.mkdir(parents=True, exist_ok=True)
+    out_dir = ensure_dir(args.out_dir)
     train_examples, val_examples = _prepare_tokenized_splits(args)
     if not train_examples or not val_examples:
         raise RuntimeError("No tokenized train/validation examples are available after preprocessing.")

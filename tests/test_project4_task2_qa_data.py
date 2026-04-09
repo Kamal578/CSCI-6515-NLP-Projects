@@ -3,6 +3,7 @@ from __future__ import annotations
 from src.project4_task2_qa_data import (
     SquadExample,
     build_windowed_examples,
+    load_glove_embedding_matrix,
     map_answer_chars_to_word_span,
     tokenize_qa_example,
     word_tokenize_with_offsets,
@@ -65,3 +66,20 @@ def test_build_windowed_examples_emits_overlapping_eval_windows():
 
     starts = [window.context_start_word for window in windows]
     assert starts == [0, 2]
+
+
+def test_load_glove_embedding_matrix_infers_dim_from_headered_text_vectors(tmp_path):
+    glove_path = tmp_path / "vectors.txt"
+    glove_path.write_text("2 4\nalpha 1 2 3 4\nbeta 5 6 7 8\n", encoding="utf-8")
+
+    matrix, stats = load_glove_embedding_matrix(
+        vocab={"<pad>": 0, "<unk>": 1, "alpha": 2, "beta": 3},
+        glove_path=glove_path,
+        embedding_dim=100,
+        seed=42,
+    )
+
+    assert matrix.shape == (4, 4)
+    assert stats["embedding_dim"] == 4
+    assert stats["requested_embedding_dim"] == 100
+    assert stats["requested_dim_matches_file"] is False

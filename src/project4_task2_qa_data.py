@@ -14,6 +14,9 @@ import requests
 import torch
 from torch.utils.data import Dataset
 
+from .project3_common import ensure_dir
+from .project3_embeddings import iter_text_vectors
+
 
 PAD_TOKEN = "<pad>"
 UNK_TOKEN = "<unk>"
@@ -427,9 +430,7 @@ def ensure_glove_path(glove_path: str | None, cache_dir: str | Path) -> Path:
             raise FileNotFoundError(f"GloVe file not found: {resolved}")
         return resolved
 
-    cache_dir = Path(cache_dir)
-    glove_dir = cache_dir / "glove"
-    glove_dir.mkdir(parents=True, exist_ok=True)
+    glove_dir = ensure_dir(Path(cache_dir) / "glove")
     target = glove_dir / "glove.6B.100d.txt"
     if target.exists():
         return target
@@ -453,27 +454,31 @@ def load_glove_embedding_matrix(
     embedding_dim: int,
     seed: int,
 ) -> tuple[np.ndarray, dict[str, float | int | str]]:
+    requested_dim = int(embedding_dim)
     rng = np.random.default_rng(seed)
-    matrix = rng.normal(loc=0.0, scale=0.05, size=(len(vocab), embedding_dim)).astype(np.float32)
-    matrix[vocab[PAD_TOKEN]] = np.zeros(embedding_dim, dtype=np.float32)
-
     hits = 0
     glove_file = Path(glove_path)
-    with glove_file.open("r", encoding="utf-8") as f:
-        for line in f:
-            pieces = line.rstrip("\n").split(" ")
-            if len(pieces) != embedding_dim + 1:
-                continue
-            token = pieces[0]
-            if token not in vocab:
-                continue
-            vector = np.asarray(pieces[1:], dtype=np.float32)
-            matrix[vocab[token]] = vector
-            hits += 1
+    inferred_dim: int | None = None
+    matrix: np.ndarray | None = None
+    for token, vector in iter_text_vectors(glove_file):
+        if inferred_dim is None:
+            inferred_dim = int(vector.shape[0])
+            matrix = rng.normal(loc=0.0, scale=0.05, size=(len(vocab), inferred_dim)).astype(np.float32)
+            matrix[vocab[PAD_TOKEN]] = np.zeros(inferred_dim, dtype=np.float32)
+        if token not in vocab:
+            continue
+        assert matrix is not None
+        matrix[vocab[token]] = vector
+        hits += 1
+
+    if inferred_dim is None or matrix is None:
+        raise ValueError(f"No usable vectors were found in embedding file: {glove_file}")
 
     stats = {
         "path": str(glove_file),
-        "embedding_dim": embedding_dim,
+        "embedding_dim": inferred_dim,
+        "requested_embedding_dim": requested_dim,
+        "requested_dim_matches_file": bool(requested_dim == inferred_dim),
         "vocab_size": len(vocab),
         "matched_tokens": hits,
         "coverage": hits / max(1, len(vocab) - 2),

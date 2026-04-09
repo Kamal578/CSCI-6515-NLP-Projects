@@ -19,8 +19,11 @@ Key flags:
 - `--train_json` / `--val_json` to use local SQuAD-format JSON files instead of downloading SQuAD
 - `--cache_dir` for dataset/model/GloVe caches
 - `--glove_path` to point at an existing `glove.6B.100d.txt`
+- `--embedding_dim` to control the BERT projection size and, when using custom GloVe text vectors, the expected comparison dimension
 - `--max_train_examples`, `--max_val_examples`, `--epochs`, `--batch_size`
 - `--max_question_words`, `--context_window_words`, `--doc_stride_words`
+- `--medium` for an intermediate CPU-friendly run
+- `--log_every_steps` to print train/eval batch progress
 - `--smoke` for a tiny CPU-friendly run
 
 ## Smoke Run
@@ -49,6 +52,20 @@ This is much slower on CPU because the `bert` variant computes frozen contextual
   --out_dir outputs/project4/task2_reading_comprehension
 ```
 
+## Medium Run
+Use this when smoke is too small but a full compare run is too slow for interactive work:
+
+```bash
+MEDIUM=1 bash scripts/run_project4_task2.sh
+```
+
+Recommended first-pass workflow on CPU:
+
+```bash
+VARIANT=glove MEDIUM=1 bash scripts/run_project4_task2.sh
+VARIANT=bert MEDIUM=1 bash scripts/run_project4_task2.sh
+```
+
 ## Shell Runner
 ```bash
 bash scripts/run_project4_task2.sh
@@ -57,11 +74,16 @@ bash scripts/run_project4_task2.sh
 Useful environment variables:
 - `VARIANT=glove|bert|compare`
 - `SMOKE=1`
+- `MEDIUM=1`
 - `OUT_DIR=...`
 - `CACHE_DIR=...`
 - `GLOVE_PATH=...`
+- `EMBEDDING_DIM=100`
+- `DEVICE=auto|cpu|cuda|mps`
 - `TRAIN_JSON=...`
 - `VAL_JSON=...`
+- `MAX_TRAIN_EXAMPLES=...`
+- `MAX_VAL_EXAMPLES=...`
 
 ## Output Files
 - `outputs/project4/task2_reading_comprehension/comparison.csv`
@@ -77,4 +99,7 @@ Useful environment variables:
 - The default dataset is `SQuAD 1.1` loaded through `datasets`.
 - The `bert` variant uses `bert-base-uncased` through `transformers`, but keeps all BERT weights frozen.
 - GloVe is loaded from `--glove_path` if provided; otherwise the script downloads `glove.6B.zip` and extracts `glove.6B.100d.txt` into the cache directory.
+- If you want to reuse the repo’s Project 3 vectors explicitly, you can pass `--glove_path outputs/project3/task3_glove/vectors.txt --embedding_dim 200`. That is optional and is not the default grading path.
 - Span evaluation is computed locally in the repo using SQuAD-style normalization, EM, and token F1.
+- Project 4 now reuses shared repo helpers from Project 3 for output writing and text-vector parsing so the embedding/file handling is consistent across projects.
+- The training loop now prints train/eval progress and writes `history.csv`, `summary.json`, and the best checkpoint incrementally after each epoch, so long runs are observable before completion.
