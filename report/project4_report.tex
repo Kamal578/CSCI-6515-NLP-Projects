@@ -8,8 +8,29 @@
 \usepackage{xcolor}
 \usepackage{enumitem}
 \usepackage{amsmath}
+\usepackage{float}
 \setlist{nosep}
 \hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue}
+
+% -----------------------------
+% Key numbers from Project 4 artifacts
+% -----------------------------
+\newcommand{\taskTwoTrainExamples}{512}
+\newcommand{\taskTwoValExamples}{128}
+\newcommand{\taskTwoTrainWindows}{688}
+\newcommand{\taskTwoValWindows}{319}
+\newcommand{\taskTwoEpochs}{2}
+\newcommand{\taskTwoBatch}{8}
+\newcommand{\taskTwoHidden}{32}
+\newcommand{\taskTwoWindow}{96}
+\newcommand{\taskTwoStride}{48}
+
+\newcommand{\gloveEM}{0.0469}
+\newcommand{\gloveFOne}{0.1354}
+\newcommand{\bertEM}{0.0234}
+\newcommand{\bertFOne}{0.1330}
+\newcommand{\bertDeltaEM}{-0.0234}
+\newcommand{\bertDeltaFOne}{-0.0024}
 
 \title{Project 4: Sentiment Analysis using BERT\\and Reading Comprehension with BiDAF and BERT}
 \author{
@@ -21,17 +42,80 @@
 \maketitle
 
 \begin{abstract}
-Project 4 combines two transformer-related directions: sentiment analysis with a fine-tuned BERT model and reading comprehension with BiDAF plus BERT-based representations. This first part of the report addresses Task 1, which is mainly theoretical. Instead of training a new sentiment model from scratch, we analyze an existing open-source fine-tuned model, describe its inputs and outputs, explain its label space and input limits, discuss the role of casing, and assess whether such a model can be transferred to an agglutinative language such as Azerbaijani.
+Project 4 combines two transformer-oriented topics. The first is a theoretical analysis of an open-source fine-tuned BERT model for sentiment analysis, with special attention to inputs, outputs, label space, casing, and applicability to Azerbaijani. The second is an implemented reading-comprehension system based on Bidirectional Attention Flow (BiDAF), evaluated with both pretrained GloVe embeddings and frozen BERT embeddings on SQuAD 1.1. In addition to the code and report, we also built a Streamlit dashboard for interactive inspection of Project 4 outputs. The current experiments show that the pipeline is functional and reproducible, while also illustrating a negative but informative result: under a CPU-friendly medium configuration, frozen BERT embeddings do not outperform the GloVe baseline.
 \end{abstract}
 
-\section{Motivation and Model Choice}
+\section{Motivation}
+Project 4 addresses two related but different NLP settings. Task 1 focuses on sentence-level sentiment analysis with BERT and asks for a model-oriented theoretical analysis rather than a new training run. Task 2 moves to machine reading comprehension, where the model must identify an answer span inside a longer context passage. These two tasks are connected by a common theme: pretrained transformers provide contextual language representations, but their practical value depends on how they are integrated into the downstream system.
+
+From a course-project perspective, the project therefore has three goals:
+\begin{itemize}
+    \item understand how a fine-tuned BERT classifier is structured and what assumptions it makes,
+    \item implement a full span-extraction QA pipeline with BiDAF in PyTorch,
+    \item compare a traditional embedding baseline (GloVe) against frozen BERT contextual embeddings in the same BiDAF framework.
+\end{itemize}
+
+\section{Method and Deliverables}
+Project 4 is implemented through dedicated \texttt{project4\_*} modules in \texttt{src/}. The main code entry points are:
+\begin{itemize}
+    \item \texttt{src/project4\_task2\_reading\_comprehension.py}
+    \item \texttt{src/project4\_task2\_qa\_data.py}
+    \item \texttt{src/project4\_task2\_qa\_model.py}
+    \item \texttt{src/project4\_task2\_qa\_metrics.py}
+    \item \texttt{src/project4\_dashboard.py} (Streamlit UI)
+\end{itemize}
+
+The main runner for Task 2 is:
+\begin{verbatim}
+bash scripts/run_project4_task2.sh
+\end{verbatim}
+
+The Streamlit UI can be launched with:
+\begin{verbatim}
+bash scripts/run_project4_ui.sh
+\end{verbatim}
+
+Primary output artifacts are written to:
+\begin{itemize}
+    \item \texttt{outputs/project4/task2\_reading\_comprehension/glove}
+    \item \texttt{outputs/project4/task2\_reading\_comprehension/bert}
+    \item \texttt{outputs/project4/task2\_reading\_comprehension/comparison.csv}
+    \item \texttt{outputs/project4/task2\_reading\_comprehension/report\_notes.md}
+\end{itemize}
+
+\section{Datasets and Experimental Setup}
+\subsection{Task 1 Model Source}
+For Task 1, we analyzed the public Hugging Face model \texttt{nlptown/bert-base-multilingual-uncased-sentiment}. This is a fine-tuned sequence classifier built on top of multilingual BERT and trained for 5-class product-review sentiment prediction~\cite{nlptown-model-card,nlptown-config}.
+
+\subsection{Task 2 Dataset}
+For Task 2, we used \textbf{SQuAD 1.1} as the reading-comprehension dataset~\cite{rajpurkar2016squad}. The implementation loads SQuAD automatically through the \texttt{datasets} library unless local JSON files are provided.
+
+The reported experiment in this report is the \texttt{medium} configuration used for CPU-feasible comparison:
+\begin{itemize}
+    \item training examples: \taskTwoTrainExamples
+    \item validation examples: \taskTwoValExamples
+    \item training windows: \taskTwoTrainWindows
+    \item validation windows: \taskTwoValWindows
+    \item epochs: \taskTwoEpochs
+    \item batch size: \taskTwoBatch
+    \item hidden size: \taskTwoHidden
+    \item context window size: \taskTwoWindow\ words
+    \item document stride: \taskTwoStride\ words
+\end{itemize}
+
+\subsection{Preprocessing and Windowing}
+Contexts and questions are normalized to lowercase in order to match the \texttt{bert-base-uncased} setting and to keep the GloVe and BERT variants directly comparable. Contexts are tokenized at the word level with character offsets, and answer spans are mapped from character positions to inclusive word indices.
+
+Because SQuAD contexts can be longer than the fixed model window, each example is converted into overlapping context windows. During training, only windows that contain the gold answer span are kept. During evaluation, all windows are scored, and the best valid span is selected for each original question.
+
+\section{Task 1: Sentiment Analysis using BERT}
+\subsection{Model Choice}
 Task 1 asks for an analysis of an open-source fine-tuned BERT model for sentiment analysis. We chose \texttt{nlptown/bert-base-multilingual-uncased-sentiment} from Hugging Face because it is openly available, well documented, and more relevant to multilingual transfer than an English-only sentiment model. The model is built on top of \texttt{bert-base-multilingual-uncased} and fine-tuned for product-review sentiment prediction in six languages: English, Dutch, German, French, Spanish, and Italian~\cite{nlptown-model-card}.
 
 This choice also makes the Azerbaijani question more meaningful. An English-only BERT sentiment model would be unsuitable for Azerbaijani except after major retraining, while a multilingual model at least gives a plausible transfer-learning starting point. The discussion below is therefore partly descriptive and partly inferential. Whenever we discuss Azerbaijani suitability, we are making a theoretical inference from the model card, the base BERT architecture, and the multilingual BERT documentation rather than reporting an empirical Azerbaijani benchmark.
 
-\section{Task 1: Theoretical Analysis of a Fine-Tuned BERT Sentiment Model}
 \subsection{Short Answer Summary}
-\begin{table}[h]
+\begin{table}[H]
 \centering
 \begin{tabular}{p{0.28\linewidth} p{0.64\linewidth}}
 \toprule
@@ -68,72 +152,167 @@ The output is a vector of class logits produced by the classification head on to
 \]
 In practice, these logits are passed through a softmax layer to obtain class probabilities, and the predicted label is the class with the highest probability~\cite{nlptown-config}.
 
-\subsection{How Many Classes Does It Have?}
-The model has \textbf{five output classes}. This is finer-grained than a binary positive/negative classifier. Instead of only deciding whether a review is positive or negative, it predicts a star rating from 1 to 5. This is useful because it captures neutral or mixed reviews more naturally:
-\begin{itemize}
-    \item 1--2 stars correspond to clearly negative sentiment,
-    \item 3 stars corresponds to a neutral or mixed middle category,
-    \item 4--5 stars correspond to positive sentiment.
-\end{itemize}
+\subsection{Number of Classes and Input Size}
+The model has \textbf{five output classes}. This is finer-grained than a binary positive/negative classifier because it predicts a rating from 1 to 5 rather than only positive vs.\ negative. This is useful because a 5-way setup can represent neutral or mixed reviews more naturally than a binary setup.
 
-This 5-way structure is explicitly defined in the published configuration file, which lists five labels and a five-class classification head~\cite{nlptown-config}.
+The model inherits the standard BERT-Base sequence limit of \textbf{512 positions}. The configuration file sets \texttt{max\_position\_embeddings=512}~\cite{nlptown-config}. This is a limit in \emph{subword positions}, not in whitespace-delimited words, and the count includes special markers such as \texttt{[CLS]} and \texttt{[SEP]}.
 
-\subsection{What Is the Size of the Input?}
-The model inherits the standard BERT-Base sequence limit of \textbf{512 positions}. The configuration file sets \texttt{max\_position\_embeddings=512}~\cite{nlptown-config}. In other words, a single example can contain at most 512 token positions after tokenization and after the insertion of special tokens.
+The base encoder is BERT-Base style: 12 transformer layers, hidden size 768, and 12 attention heads~\cite{google-bert,devlin2019bert}. These settings determine the representational capacity and computational cost of the model.
 
-This limit should be interpreted carefully:
-\begin{itemize}
-    \item it is a limit in \textbf{subword tokens}, not whitespace-separated words,
-    \item the count includes special markers such as \texttt{[CLS]} and \texttt{[SEP]},
-    \item long reviews must therefore be truncated or split.
-\end{itemize}
-
-The base encoder itself is BERT-Base style: 12 transformer layers, hidden size 768, and 12 attention heads~\cite{google-bert,devlin2019bert}. These properties affect computational cost and representation capacity, while the 512-position limit determines the maximum review length that can be processed in one pass.
-
-\subsection{Is the Model Case Sensitive?}
-No. The model is \textbf{not case sensitive} in the normal sense because it is based on an \texttt{uncased} multilingual BERT checkpoint. During tokenization, text is normalized to lowercase, so \texttt{Good}, \texttt{good}, and \texttt{GOOD} are mapped toward the same lexical form.
+\subsection{Case Sensitivity}
+The model is \textbf{not case sensitive} in the usual sense because it is based on an \texttt{uncased} multilingual BERT checkpoint. During tokenization, text is normalized to lowercase, so \texttt{Good}, \texttt{good}, and \texttt{GOOD} are treated as the same lexical form.
 
 This has both advantages and disadvantages:
 \begin{itemize}
-    \item \textbf{Advantage:} uncased models are often more robust on noisy user reviews, where capitalization may be inconsistent.
-    \item \textbf{Advantage:} lowercasing reduces vocabulary fragmentation, which can help when the same word appears in many surface case variants.
-    \item \textbf{Disadvantage:} the model loses information carried by capitalization, such as emphasis in all-caps text or proper-name distinctions.
+    \item it improves robustness on noisy user-generated review text,
+    \item it reduces vocabulary fragmentation caused by capitalization variants,
+    \item but it removes information carried by capitalization, such as emphasis or certain proper-name distinctions.
 \end{itemize}
 
-For sentiment analysis, this tradeoff is often acceptable because the main polarity signal usually comes from lexical content and context, not from case alone. However, casing can still matter in practice. For example, a review like \texttt{THIS WAS AMAZING} may carry a stronger emotional cue than the lowercase version. More broadly, the Google BERT documentation notes that, for multilingual development, the newer multilingual cased model is the recommended variant, while the original multilingual uncased model is not the preferred multilingual baseline~\cite{google-bert}. This suggests that uncasing may slightly reduce linguistic fidelity even if it can improve robustness on noisy text.
+For sentiment analysis, this tradeoff is often acceptable because the main polarity signal usually comes from lexical content and context. However, all-caps emphasis such as \texttt{THIS WAS AMAZING} can carry useful affective information that an uncased model does not preserve explicitly.
 
-\subsection{Can the Model Be Used for an Agglutinative Language such as Azerbaijani?}
+\subsection{Azerbaijani Applicability}
 The short answer is: \textbf{yes, but only as a baseline and not as a final solution}.
 
-There are several reasons why transfer is possible:
+Transfer is possible because:
 \begin{itemize}
-    \item the base encoder is multilingual, so it was pretrained on many languages rather than English only~\cite{google-bert},
+    \item the base encoder is multilingual rather than English-only~\cite{google-bert},
     \item BERT uses subword tokenization, which reduces the out-of-vocabulary problem,
-    \item subword modeling is especially useful for morphologically rich languages because unseen word forms can still be decomposed into known pieces.
+    \item subword modeling is especially helpful for morphologically rich languages.
 \end{itemize}
 
-However, there are also clear reasons why direct zero-shot use on Azerbaijani would likely underperform:
+Direct zero-shot use on Azerbaijani would still likely underperform because:
 \begin{itemize}
-    \item the sentiment head was fine-tuned on six non-Azerbaijani languages only~\cite{nlptown-model-card},
-    \item the task domain is product reviews, so the label semantics and lexical cues come from that domain,
-    \item Azerbaijani is agglutinative, which means sentiment-bearing word forms can be expanded with many suffixes,
-    \item agglutinative morphology often produces longer and more fragmented subword sequences, which may make polarity cues harder to capture if the model was not adapted to that language.
+    \item the sentiment head was fine-tuned on six non-Azerbaijani languages only,
+    \item the fine-tuning domain is product reviews,
+    \item Azerbaijani is agglutinative, so many sentiment-bearing forms appear with long suffix chains.
 \end{itemize}
 
-For Azerbaijani specifically, this means the model can probably produce \emph{some} useful predictions, especially on international vocabulary and simple review sentences, but we should not expect stable accuracy without further adaptation. This is an inference from the model's training setup, not a measured result in our experiments.
+Therefore, the best interpretation is that such a model is a plausible transfer baseline, but reliable Azerbaijani sentiment analysis would require additional Azerbaijani fine-tuning.
 
-In practice, a better Azerbaijani strategy would be:
+\section{Task 2: Reading Comprehension with BiDAF and BERT}
+\subsection{Architecture}
+Task 2 was implemented in PyTorch with a shared BiDAF backbone and two embedding variants:
 \begin{itemize}
-    \item start from a multilingual BERT encoder,
-    \item collect or reuse an Azerbaijani sentiment dataset,
-    \item fine-tune the classifier on Azerbaijani labels,
-    \item compare the uncased multilingual baseline with a cased multilingual or Turkic-friendly alternative.
+    \item \textbf{GloVe baseline}: pretrained word vectors loaded from a text-vector file and fine-tuned during QA training.
+    \item \textbf{Frozen BERT variant}: contextual embeddings from \texttt{bert-base-uncased}, pooled from the first subtoken for each word, then projected into the same dimensionality expected by the BiDAF stack.
 \end{itemize}
 
-\subsection{Conclusion}
-The selected model is a standard BERT sequence classifier fine-tuned for 5-class sentiment prediction on multilingual product reviews. Its inputs are tokenized subword sequences and its outputs are five class scores. The model accepts sequences up to 512 subword positions and is not case sensitive because it is based on an uncased tokenizer.
+The BiDAF implementation follows the standard high-level structure introduced by Seo et al.~\cite{seo2017bidaf}:
+\begin{itemize}
+    \item embedding input,
+    \item 2-layer highway network,
+    \item contextual BiLSTM encoding,
+    \item bidirectional attention flow between question and context,
+    \item modeling layers,
+    \item start and end span prediction heads.
+\end{itemize}
 
-From a theoretical point of view, the model is \emph{usable} for Azerbaijani only in a limited transfer-learning sense. Its multilingual pretraining and WordPiece tokenization make transfer possible, but the lack of Azerbaijani fine-tuning and the language's agglutinative morphology make direct deployment risky. Therefore, the best interpretation is that such a model is a strong starting point for Azerbaijani sentiment analysis, not a fully reliable end product.
+The model takes a question and a context passage as input and outputs the predicted \textbf{start} and \textbf{end} positions of the answer within the context window.
+
+\subsection{Training Setup}
+The training objective is the sum of cross-entropy losses over the start and end positions. Optimization uses \texttt{AdamW} with gradient clipping and early stopping on validation F1. Evaluation uses SQuAD-style \textbf{Exact Match (EM)} and token-level \textbf{F1}.
+
+The currently reported experiment is the medium preset used for reproducible CPU comparison:
+\begin{itemize}
+    \item train examples: \taskTwoTrainExamples
+    \item validation examples: \taskTwoValExamples
+    \item train windows: \taskTwoTrainWindows
+    \item validation windows: \taskTwoValWindows
+    \item epochs: \taskTwoEpochs
+    \item batch size: \taskTwoBatch
+    \item hidden size: \taskTwoHidden
+    \item context window size: \taskTwoWindow
+    \item stride: \taskTwoStride
+\end{itemize}
+
+We selected the best checkpoint by \textbf{validation F1}. This means the reported EM in the summary corresponds to the epoch where F1 was best, not necessarily the epoch where EM alone was highest.
+
+\subsection{Results}
+\begin{table}[H]
+\centering
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Variant} & \textbf{Best Epoch} & \textbf{EM} & \textbf{F1} & \textbf{Validation Examples} \\
+\midrule
+BiDAF + GloVe & 1 & \gloveEM & \gloveFOne & \taskTwoValExamples \\
+BiDAF + frozen BERT & 1 & \bertEM & \bertFOne & \taskTwoValExamples \\
+\bottomrule
+\end{tabular}
+\caption{Task 2 comparison from \texttt{outputs/project4/task2\_reading\_comprehension/comparison.csv}.}
+\label{tab:task2-results}
+\end{table}
+
+The direct comparison shows:
+\begin{itemize}
+    \item Frozen BERT delta EM: \bertDeltaEM
+    \item Frozen BERT delta F1: \bertDeltaFOne
+\end{itemize}
+
+Under this configuration, the \textbf{GloVe baseline slightly outperformed the frozen BERT variant}. This is a negative result in the sense that the contextual model did not win, but it is still a useful outcome because it clarifies the conditions under which frozen BERT is not automatically better than a simpler baseline.
+
+\subsection{Analysis and Error Discussion}
+The Task 2 results are valid but modest. They indicate that the system is working end-to-end, but they are not yet strong benchmark-level SQuAD results. Several factors likely explain this:
+\begin{itemize}
+    \item the reported run is a medium CPU-friendly experiment rather than a large full-training configuration,
+    \item only a subset of SQuAD was used for the reported comparison,
+    \item the BERT encoder is \emph{frozen}, so the contextual representation cannot adapt to the QA objective,
+    \item the BERT representations are projected into the BiDAF space, which may lose some contextual information,
+    \item exact match is a strict metric and heavily penalizes near-miss spans.
+\end{itemize}
+
+Even with these limitations, the experiment satisfies the assignment requirements:
+\begin{itemize}
+    \item BiDAF is implemented and trained,
+    \item BERT-Base is integrated,
+    \item a traditional embedding baseline is used,
+    \item EM and F1 are computed and compared.
+\end{itemize}
+
+\subsection{Implementation Issues Found During Development}
+During medium-size experimentation we found an important preprocessing issue in the BERT path. Some contexts contained standalone Unicode formatting or combining-mark tokens that were preserved by the word-level tokenizer but dropped by the BERT tokenizer. This caused a mismatch between word counts and pooled BERT outputs. We fixed this by filtering out tokens composed only of Unicode control/format or combining-mark characters before batching. This improved stability of the BERT variant and allowed the medium run to complete successfully.
+
+\section{Extra Task: Streamlit UI}
+As the extra task, we built a \textbf{Streamlit UI} for Project 4 results in \texttt{src/project4\_dashboard.py}. The UI includes:
+\begin{itemize}
+    \item a Project 4 overview page,
+    \item Task 1 model-analysis panels,
+    \item Task 2 metric visualizations,
+    \item a prediction inspector for comparing GloVe and BERT outputs side by side,
+    \item an artifact explorer showing summaries, notes, and report source.
+\end{itemize}
+
+This interface makes the project easier to demonstrate during presentation and simplifies inspection of the saved experiment outputs. It is launched with:
+\begin{verbatim}
+bash scripts/run_project4_ui.sh
+\end{verbatim}
+
+\section{Reproducibility and Artifacts}
+The main reproducibility artifacts are:
+\begin{itemize}
+    \item \texttt{outputs/project4/task2\_reading\_comprehension/glove/summary.json}
+    \item \texttt{outputs/project4/task2\_reading\_comprehension/bert/summary.json}
+    \item \texttt{outputs/project4/task2\_reading\_comprehension/comparison.csv}
+    \item \texttt{outputs/project4/task2\_reading\_comprehension/report\_notes.md}
+\end{itemize}
+
+The current reported experiment was produced with:
+\begin{verbatim}
+MEDIUM=1 bash scripts/run_project4_task2.sh
+\end{verbatim}
+
+A smaller smoke test also exists for quick validation, but the medium run is the main comparable configuration used in this report.
+
+\section{Team Contributions}
+Both team members contributed to the final Project 4 submission, including implementation review, debugging, and interpretation of results. The work split was primarily as follows:
+\begin{itemize}
+    \item \textbf{Kamal Ahmadov}: Task 1 model analysis, report writing and polishing, interpretation of multilingual-transfer implications for Azerbaijani.
+    \item \textbf{Rufat Guliyev}: Task 2 engineering and debugging, experiment runners, output artifacts, and the Streamlit UI.
+    \item \textbf{Shared}: evaluation discussion, final result review, and preparation for presentation.
+\end{itemize}
+
+\section{Conclusion}
+Project 4 produced both a theoretical and an implemented result. For Task 1, we showed that a multilingual fine-tuned BERT sentiment classifier has a clear and interpretable input/output structure, uses five classes, is uncased, and is only partially suitable for Azerbaijani without additional fine-tuning. For Task 2, we implemented a BiDAF reading-comprehension system with both GloVe and frozen BERT embeddings, trained it on SQuAD-style data, and evaluated it with EM and F1. The current medium-scale experiment shows that frozen BERT did not outperform the GloVe baseline, which is a useful negative result rather than a failure. Finally, the Streamlit dashboard completes the project by making the outputs easier to inspect and present interactively.
 
 \begin{thebibliography}{9}
 
@@ -156,6 +335,18 @@ Hugging Face model card for \texttt{nlptown/bert-base-multilingual-uncased-senti
 \bibitem{nlptown-config}
 Hugging Face configuration for \texttt{nlptown/bert-base-multilingual-uncased-sentiment}.
 \newblock \url{https://huggingface.co/nlptown/bert-base-multilingual-uncased-sentiment/blob/main/config.json}
+
+\bibitem{seo2017bidaf}
+Minjoon Seo, Aniruddha Kembhavi, Ali Farhadi, and Hannaneh Hajishirzi.
+\newblock \emph{Bidirectional Attention Flow for Machine Comprehension}.
+\newblock ICLR, 2017.
+\newblock \url{https://arxiv.org/abs/1611.01603}
+
+\bibitem{rajpurkar2016squad}
+Pranav Rajpurkar, Jian Zhang, Konstantin Lopyrev, and Percy Liang.
+\newblock \emph{SQuAD: 100,000+ Questions for Machine Comprehension of Text}.
+\newblock EMNLP, 2016.
+\newblock \url{https://arxiv.org/abs/1606.05250}
 
 \end{thebibliography}
 
