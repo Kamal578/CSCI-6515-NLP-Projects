@@ -1,0 +1,162 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{hyperref}
+\usepackage{xcolor}
+\usepackage{enumitem}
+\usepackage{amsmath}
+\setlist{nosep}
+\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue}
+
+\title{Project 4: Sentiment Analysis using BERT\\and Reading Comprehension with BiDAF and BERT}
+\author{
+\textbf{Kamal Ahmadov} \and \textbf{Rufat Guliyev}
+}
+\date{Spring 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+Project 4 combines two transformer-related directions: sentiment analysis with a fine-tuned BERT model and reading comprehension with BiDAF plus BERT-based representations. This first part of the report addresses Task 1, which is mainly theoretical. Instead of training a new sentiment model from scratch, we analyze an existing open-source fine-tuned model, describe its inputs and outputs, explain its label space and input limits, discuss the role of casing, and assess whether such a model can be transferred to an agglutinative language such as Azerbaijani.
+\end{abstract}
+
+\section{Motivation and Model Choice}
+Task 1 asks for an analysis of an open-source fine-tuned BERT model for sentiment analysis. We chose \texttt{nlptown/bert-base-multilingual-uncased-sentiment} from Hugging Face because it is openly available, well documented, and more relevant to multilingual transfer than an English-only sentiment model. The model is built on top of \texttt{bert-base-multilingual-uncased} and fine-tuned for product-review sentiment prediction in six languages: English, Dutch, German, French, Spanish, and Italian~\cite{nlptown-model-card}.
+
+This choice also makes the Azerbaijani question more meaningful. An English-only BERT sentiment model would be unsuitable for Azerbaijani except after major retraining, while a multilingual model at least gives a plausible transfer-learning starting point. The discussion below is therefore partly descriptive and partly inferential. Whenever we discuss Azerbaijani suitability, we are making a theoretical inference from the model card, the base BERT architecture, and the multilingual BERT documentation rather than reporting an empirical Azerbaijani benchmark.
+
+\section{Task 1: Theoretical Analysis of a Fine-Tuned BERT Sentiment Model}
+\subsection{Short Answer Summary}
+\begin{table}[h]
+\centering
+\begin{tabular}{p{0.28\linewidth} p{0.64\linewidth}}
+\toprule
+\textbf{Question} & \textbf{Answer} \\
+\midrule
+Which model is analyzed? & \texttt{nlptown/bert-base-multilingual-uncased-sentiment} \\
+Inputs & Tokenized review text represented as WordPiece token IDs, attention mask, and optionally token type IDs \\
+Outputs & Five sentiment logits, usually converted with softmax into class probabilities \\
+How many classes? & 5 classes: \texttt{1 star}, \texttt{2 stars}, \texttt{3 stars}, \texttt{4 stars}, \texttt{5 stars} \\
+What is the input size? & Up to 512 subword positions, including special tokens such as \texttt{[CLS]} and \texttt{[SEP]} \\
+Is it case sensitive? & No. It is an \texttt{uncased} model, so capitalization distinctions are removed during tokenization \\
+Can it be used for Azerbaijani? & Yes as a transfer baseline, but not reliably as-is. Additional Azerbaijani fine-tuning would be needed for good accuracy \\
+\bottomrule
+\end{tabular}
+\caption{Task 1 summary for the selected open-source BERT sentiment model.}
+\label{tab:task1-summary}
+\end{table}
+
+\subsection{Inputs and Outputs of the Model}
+The selected model uses the standard BERT sequence-classification interface. The raw input is a text review. Before the text reaches the classifier, it is processed by a tokenizer that:
+\begin{itemize}
+    \item lowercases the text because the model is uncased,
+    \item splits the review into WordPiece subword tokens,
+    \item adds special boundary tokens such as \texttt{[CLS]} and \texttt{[SEP]},
+    \item converts the tokens into integer token IDs,
+    \item builds an attention mask to distinguish real tokens from padding.
+\end{itemize}
+
+Therefore, the actual tensor input to the model is not plain text but a set of indexed token sequences. In transformer libraries such as Hugging Face, the most important tensors are \texttt{input\_ids}, \texttt{attention\_mask}, and sometimes \texttt{token\_type\_ids}.
+
+The output is a vector of class logits produced by the classification head on top of BERT. According to the model configuration, the label mapping is:
+\[
+\{\texttt{1 star}, \texttt{2 stars}, \texttt{3 stars}, \texttt{4 stars}, \texttt{5 stars}\}.
+\]
+In practice, these logits are passed through a softmax layer to obtain class probabilities, and the predicted label is the class with the highest probability~\cite{nlptown-config}.
+
+\subsection{How Many Classes Does It Have?}
+The model has \textbf{five output classes}. This is finer-grained than a binary positive/negative classifier. Instead of only deciding whether a review is positive or negative, it predicts a star rating from 1 to 5. This is useful because it captures neutral or mixed reviews more naturally:
+\begin{itemize}
+    \item 1--2 stars correspond to clearly negative sentiment,
+    \item 3 stars corresponds to a neutral or mixed middle category,
+    \item 4--5 stars correspond to positive sentiment.
+\end{itemize}
+
+This 5-way structure is explicitly defined in the published configuration file, which lists five labels and a five-class classification head~\cite{nlptown-config}.
+
+\subsection{What Is the Size of the Input?}
+The model inherits the standard BERT-Base sequence limit of \textbf{512 positions}. The configuration file sets \texttt{max\_position\_embeddings=512}~\cite{nlptown-config}. In other words, a single example can contain at most 512 token positions after tokenization and after the insertion of special tokens.
+
+This limit should be interpreted carefully:
+\begin{itemize}
+    \item it is a limit in \textbf{subword tokens}, not whitespace-separated words,
+    \item the count includes special markers such as \texttt{[CLS]} and \texttt{[SEP]},
+    \item long reviews must therefore be truncated or split.
+\end{itemize}
+
+The base encoder itself is BERT-Base style: 12 transformer layers, hidden size 768, and 12 attention heads~\cite{google-bert,devlin2019bert}. These properties affect computational cost and representation capacity, while the 512-position limit determines the maximum review length that can be processed in one pass.
+
+\subsection{Is the Model Case Sensitive?}
+No. The model is \textbf{not case sensitive} in the normal sense because it is based on an \texttt{uncased} multilingual BERT checkpoint. During tokenization, text is normalized to lowercase, so \texttt{Good}, \texttt{good}, and \texttt{GOOD} are mapped toward the same lexical form.
+
+This has both advantages and disadvantages:
+\begin{itemize}
+    \item \textbf{Advantage:} uncased models are often more robust on noisy user reviews, where capitalization may be inconsistent.
+    \item \textbf{Advantage:} lowercasing reduces vocabulary fragmentation, which can help when the same word appears in many surface case variants.
+    \item \textbf{Disadvantage:} the model loses information carried by capitalization, such as emphasis in all-caps text or proper-name distinctions.
+\end{itemize}
+
+For sentiment analysis, this tradeoff is often acceptable because the main polarity signal usually comes from lexical content and context, not from case alone. However, casing can still matter in practice. For example, a review like \texttt{THIS WAS AMAZING} may carry a stronger emotional cue than the lowercase version. More broadly, the Google BERT documentation notes that, for multilingual development, the newer multilingual cased model is the recommended variant, while the original multilingual uncased model is not the preferred multilingual baseline~\cite{google-bert}. This suggests that uncasing may slightly reduce linguistic fidelity even if it can improve robustness on noisy text.
+
+\subsection{Can the Model Be Used for an Agglutinative Language such as Azerbaijani?}
+The short answer is: \textbf{yes, but only as a baseline and not as a final solution}.
+
+There are several reasons why transfer is possible:
+\begin{itemize}
+    \item the base encoder is multilingual, so it was pretrained on many languages rather than English only~\cite{google-bert},
+    \item BERT uses subword tokenization, which reduces the out-of-vocabulary problem,
+    \item subword modeling is especially useful for morphologically rich languages because unseen word forms can still be decomposed into known pieces.
+\end{itemize}
+
+However, there are also clear reasons why direct zero-shot use on Azerbaijani would likely underperform:
+\begin{itemize}
+    \item the sentiment head was fine-tuned on six non-Azerbaijani languages only~\cite{nlptown-model-card},
+    \item the task domain is product reviews, so the label semantics and lexical cues come from that domain,
+    \item Azerbaijani is agglutinative, which means sentiment-bearing word forms can be expanded with many suffixes,
+    \item agglutinative morphology often produces longer and more fragmented subword sequences, which may make polarity cues harder to capture if the model was not adapted to that language.
+\end{itemize}
+
+For Azerbaijani specifically, this means the model can probably produce \emph{some} useful predictions, especially on international vocabulary and simple review sentences, but we should not expect stable accuracy without further adaptation. This is an inference from the model's training setup, not a measured result in our experiments.
+
+In practice, a better Azerbaijani strategy would be:
+\begin{itemize}
+    \item start from a multilingual BERT encoder,
+    \item collect or reuse an Azerbaijani sentiment dataset,
+    \item fine-tune the classifier on Azerbaijani labels,
+    \item compare the uncased multilingual baseline with a cased multilingual or Turkic-friendly alternative.
+\end{itemize}
+
+\subsection{Conclusion}
+The selected model is a standard BERT sequence classifier fine-tuned for 5-class sentiment prediction on multilingual product reviews. Its inputs are tokenized subword sequences and its outputs are five class scores. The model accepts sequences up to 512 subword positions and is not case sensitive because it is based on an uncased tokenizer.
+
+From a theoretical point of view, the model is \emph{usable} for Azerbaijani only in a limited transfer-learning sense. Its multilingual pretraining and WordPiece tokenization make transfer possible, but the lack of Azerbaijani fine-tuning and the language's agglutinative morphology make direct deployment risky. Therefore, the best interpretation is that such a model is a strong starting point for Azerbaijani sentiment analysis, not a fully reliable end product.
+
+\begin{thebibliography}{9}
+
+\bibitem{devlin2019bert}
+Jacob Devlin, Ming-Wei Chang, Kenton Lee, and Kristina Toutanova.
+\newblock \emph{BERT: Pre-training of Deep Bidirectional Transformers for Language Understanding}.
+\newblock NAACL-HLT, 2019.
+\newblock \url{https://arxiv.org/abs/1810.04805}
+
+\bibitem{google-bert}
+Google Research.
+\newblock \emph{BERT: TensorFlow code and pre-trained models for BERT}.
+\newblock GitHub repository.
+\newblock \url{https://github.com/google-research/bert}
+
+\bibitem{nlptown-model-card}
+Hugging Face model card for \texttt{nlptown/bert-base-multilingual-uncased-sentiment}.
+\newblock \url{https://huggingface.co/nlptown/bert-base-multilingual-uncased-sentiment}
+
+\bibitem{nlptown-config}
+Hugging Face configuration for \texttt{nlptown/bert-base-multilingual-uncased-sentiment}.
+\newblock \url{https://huggingface.co/nlptown/bert-base-multilingual-uncased-sentiment/blob/main/config.json}
+
+\end{thebibliography}
+
+\end{document}
