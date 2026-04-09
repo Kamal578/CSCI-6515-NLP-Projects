@@ -15,22 +15,24 @@
 % -----------------------------
 % Key numbers from Project 4 artifacts
 % -----------------------------
-\newcommand{\taskTwoTrainExamples}{512}
-\newcommand{\taskTwoValExamples}{128}
-\newcommand{\taskTwoTrainWindows}{688}
-\newcommand{\taskTwoValWindows}{319}
-\newcommand{\taskTwoEpochs}{2}
-\newcommand{\taskTwoBatch}{8}
-\newcommand{\taskTwoHidden}{32}
-\newcommand{\taskTwoWindow}{96}
-\newcommand{\taskTwoStride}{48}
+\newcommand{\taskTwoTrainExamples}{8192}
+\newcommand{\taskTwoValExamples}{2048}
+\newcommand{\taskTwoTrainWindows}{9390}
+\newcommand{\taskTwoValWindows}{3069}
+\newcommand{\taskTwoEpochs}{4}
+\newcommand{\taskTwoBatch}{16}
+\newcommand{\taskTwoHidden}{64}
+\newcommand{\taskTwoWindow}{160}
+\newcommand{\taskTwoStride}{64}
+\newcommand{\gloveBestEpoch}{3}
+\newcommand{\bertBestEpoch}{4}
 
-\newcommand{\gloveEM}{0.0469}
-\newcommand{\gloveFOne}{0.1354}
-\newcommand{\bertEM}{0.0234}
-\newcommand{\bertFOne}{0.1330}
-\newcommand{\bertDeltaEM}{-0.0234}
-\newcommand{\bertDeltaFOne}{-0.0024}
+\newcommand{\gloveEM}{0.1216}
+\newcommand{\gloveFOne}{0.1819}
+\newcommand{\bertEM}{0.2642}
+\newcommand{\bertFOne}{0.3600}
+\newcommand{\bertDeltaEM}{+0.1426}
+\newcommand{\bertDeltaFOne}{+0.1782}
 
 \title{Project 4: Sentiment Analysis using BERT\\and Reading Comprehension with BiDAF and BERT}
 \author{
@@ -42,7 +44,7 @@
 \maketitle
 
 \begin{abstract}
-Project 4 combines two transformer-oriented topics. The first is a theoretical analysis of an open-source fine-tuned BERT model for sentiment analysis, with special attention to inputs, outputs, label space, casing, and applicability to Azerbaijani. The second is an implemented reading-comprehension system based on Bidirectional Attention Flow (BiDAF), evaluated with both pretrained GloVe embeddings and frozen BERT embeddings on SQuAD 1.1. In addition to the code and report, we also built a Streamlit dashboard for interactive inspection of Project 4 outputs. The current experiments show that the pipeline is functional and reproducible, while also illustrating a negative but informative result: under a CPU-friendly medium configuration, frozen BERT embeddings do not outperform the GloVe baseline.
+Project 4 combines two transformer-oriented topics. The first is a theoretical analysis of an open-source fine-tuned BERT model for sentiment analysis, with special attention to inputs, outputs, label space, casing, and applicability to Azerbaijani. The second is an implemented reading-comprehension system based on Bidirectional Attention Flow (BiDAF), evaluated with both a traditional word-vector baseline and frozen BERT embeddings on SQuAD 1.1. In addition to the code and report, we also built a Streamlit dashboard for interactive inspection of Project 4 outputs. The refreshed experiments show that the pipeline is functional and reproducible, and that under a larger full-parameter CPU-feasible configuration, frozen BERT embeddings clearly outperform the traditional baseline.
 \end{abstract}
 
 \section{Motivation}
@@ -90,7 +92,7 @@ For Task 1, we analyzed the public Hugging Face model \texttt{nlptown/bert-base-
 \subsection{Task 2 Dataset}
 For Task 2, we used \textbf{SQuAD 1.1} as the reading-comprehension dataset~\cite{rajpurkar2016squad}. The implementation loads SQuAD automatically through the \texttt{datasets} library unless local JSON files are provided.
 
-The reported experiment in this report is the \texttt{medium} configuration used for CPU-feasible comparison:
+The reported experiment in this report keeps the normal Task 2 model and training settings but uses a larger CPU-feasible SQuAD slice for comparison:
 \begin{itemize}
     \item training examples: \taskTwoTrainExamples
     \item validation examples: \taskTwoValExamples
@@ -213,7 +215,7 @@ The model takes a question and a context passage as input and outputs the predic
 \subsection{Training Setup}
 The training objective is the sum of cross-entropy losses over the start and end positions. Optimization uses \texttt{AdamW} with gradient clipping and early stopping on validation F1. Evaluation uses SQuAD-style \textbf{Exact Match (EM)} and token-level \textbf{F1}.
 
-The currently reported experiment is the medium preset used for reproducible CPU comparison:
+The currently reported experiment is a larger reproducible CPU-feasible compare run that preserves the normal Task 2 hyperparameters while capping the data volume:
 \begin{itemize}
     \item train examples: \taskTwoTrainExamples
     \item validation examples: \taskTwoValExamples
@@ -235,8 +237,8 @@ We selected the best checkpoint by \textbf{validation F1}. This means the report
 \toprule
 \textbf{Variant} & \textbf{Best Epoch} & \textbf{EM} & \textbf{F1} & \textbf{Validation Examples} \\
 \midrule
-BiDAF + GloVe & 1 & \gloveEM & \gloveFOne & \taskTwoValExamples \\
-BiDAF + frozen BERT & 1 & \bertEM & \bertFOne & \taskTwoValExamples \\
+BiDAF + GloVe & \gloveBestEpoch & \gloveEM & \gloveFOne & \taskTwoValExamples \\
+BiDAF + frozen BERT & \bertBestEpoch & \bertEM & \bertFOne & \taskTwoValExamples \\
 \bottomrule
 \end{tabular}
 \caption{Task 2 comparison from \texttt{outputs/project4/task2\_reading\_comprehension/comparison.csv}.}
@@ -249,13 +251,12 @@ The direct comparison shows:
     \item Frozen BERT delta F1: \bertDeltaFOne
 \end{itemize}
 
-Under this configuration, the \textbf{GloVe baseline slightly outperformed the frozen BERT variant}. This is a negative result in the sense that the contextual model did not win, but it is still a useful outcome because it clarifies the conditions under which frozen BERT is not automatically better than a simpler baseline.
+Under this configuration, the \textbf{frozen BERT variant substantially outperformed the traditional word-vector baseline}. This is the comparison outcome we expected to see from contextual embeddings, and the gap is large enough to be meaningful rather than noise.
 
 \subsection{Analysis and Error Discussion}
-The Task 2 results are valid but modest. They indicate that the system is working end-to-end, but they are not yet strong benchmark-level SQuAD results. Several factors likely explain this:
+The Task 2 results are much stronger than our earlier medium run and show that the BERT integration is genuinely useful in this implementation. They are still below strong benchmark-level SQuAD systems, and several factors likely explain the remaining gap:
 \begin{itemize}
-    \item the reported run is a medium CPU-friendly experiment rather than a large full-training configuration,
-    \item only a subset of SQuAD was used for the reported comparison,
+    \item the reported run still uses a capped subset of SQuAD rather than the full training set,
     \item the BERT encoder is \emph{frozen}, so the contextual representation cannot adapt to the QA objective,
     \item the BERT representations are projected into the BiDAF space, which may lose some contextual information,
     \item exact match is a strict metric and heavily penalizes near-miss spans.
@@ -270,7 +271,7 @@ Even with these limitations, the experiment satisfies the assignment requirement
 \end{itemize}
 
 \subsection{Implementation Issues Found During Development}
-During medium-size experimentation we found an important preprocessing issue in the BERT path. Some contexts contained standalone Unicode formatting or combining-mark tokens that were preserved by the word-level tokenizer but dropped by the BERT tokenizer. This caused a mismatch between word counts and pooled BERT outputs. We fixed this by filtering out tokens composed only of Unicode control/format or combining-mark characters before batching. This improved stability of the BERT variant and allowed the medium run to complete successfully.
+During experimentation we found an important preprocessing issue in the BERT path. Some contexts contained standalone Unicode formatting or combining-mark tokens, and later we also found an isolated replacement-character token (\texttt{�}). These tokens were preserved by the word-level tokenizer but dropped by the BERT tokenizer, which caused a mismatch between word counts and pooled BERT outputs. We fixed this by filtering out tokens composed only of Unicode control/format or combining-mark characters and by dropping standalone replacement-character tokens before batching. This improved stability of the BERT variant and allowed the larger rerun to complete successfully.
 
 \section{Extra Task: Streamlit UI}
 As the extra task, we built a \textbf{Streamlit UI} for Project 4 results in \texttt{src/project4\_dashboard.py}. The UI includes:
@@ -298,10 +299,11 @@ The main reproducibility artifacts are:
 
 The current reported experiment was produced with:
 \begin{verbatim}
-MEDIUM=1 bash scripts/run_project4_task2.sh
+MAX_TRAIN_EXAMPLES=8192 MAX_VAL_EXAMPLES=2048 \
+bash scripts/run_project4_task2.sh
 \end{verbatim}
 
-A smaller smoke test also exists for quick validation, but the medium run is the main comparable configuration used in this report.
+A smaller smoke test and the earlier medium preset still exist for quick validation, but the larger full-parameter run above is the main comparable configuration used in this report.
 
 \section{Team Contributions}
 Both team members contributed to the final Project 4 submission, including implementation review, debugging, and interpretation of results. The work split was primarily as follows:
@@ -312,7 +314,7 @@ Both team members contributed to the final Project 4 submission, including imple
 \end{itemize}
 
 \section{Conclusion}
-Project 4 produced both a theoretical and an implemented result. For Task 1, we showed that a multilingual fine-tuned BERT sentiment classifier has a clear and interpretable input/output structure, uses five classes, is uncased, and is only partially suitable for Azerbaijani without additional fine-tuning. For Task 2, we implemented a BiDAF reading-comprehension system with both GloVe and frozen BERT embeddings, trained it on SQuAD-style data, and evaluated it with EM and F1. The current medium-scale experiment shows that frozen BERT did not outperform the GloVe baseline, which is a useful negative result rather than a failure. Finally, the Streamlit dashboard completes the project by making the outputs easier to inspect and present interactively.
+Project 4 produced both a theoretical and an implemented result. For Task 1, we showed that a multilingual fine-tuned BERT sentiment classifier has a clear and interpretable input/output structure, uses five classes, is uncased, and is only partially suitable for Azerbaijani without additional fine-tuning. For Task 2, we implemented a BiDAF reading-comprehension system with both a traditional word-vector baseline and frozen BERT embeddings, trained it on SQuAD-style data, and evaluated it with EM and F1. The larger full-parameter rerun shows that frozen BERT clearly outperforms the traditional baseline in this setup. Finally, the Streamlit dashboard completes the project by making the outputs easier to inspect and present interactively.
 
 \begin{thebibliography}{9}
 

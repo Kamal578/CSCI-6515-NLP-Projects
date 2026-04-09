@@ -111,6 +111,8 @@ def word_tokenize_with_offsets(text: str) -> tuple[list[str], list[tuple[int, in
     offsets: list[tuple[int, int]] = []
     for match in WORD_RE.finditer(text):
         token = match.group(0)
+        if token.replace("\ufffd", "") == "":
+            continue
         if all(unicodedata.category(ch)[0] in {"C", "M"} for ch in token):
             continue
         words.append(token)

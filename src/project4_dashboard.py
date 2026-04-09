@@ -28,6 +28,30 @@ TASK1_MODEL_FACTS = {
     "case_sensitive": False,
 }
 
+TASK1_DEMO_REVIEWS = [
+    {
+        "label": "Positive review",
+        "text": "Fantastic camera, fast shipping, and excellent battery life. I would buy it again.",
+        "likely_label": "5 stars",
+        "why": "Strong positive adjectives and a clear purchase recommendation usually push the classifier toward the top sentiment class.",
+        "casing_note": "Capitalization is not needed for the signal here; the lexical content already carries strong positive polarity.",
+    },
+    {
+        "label": "Mixed review",
+        "text": "The screen is sharp, but the setup was confusing and the battery drains too quickly.",
+        "likely_label": "2 to 3 stars",
+        "why": "The sentence mixes praise with concrete complaints, so it resembles the kind of review that falls into a middle or mildly negative class.",
+        "casing_note": "Because the model is uncased, it focuses more on words like 'confusing' and 'drains' than on surface formatting.",
+    },
+    {
+        "label": "All-caps emphasis",
+        "text": "THIS WAS AMAZING. The sound quality is great and the device feels premium.",
+        "likely_label": "5 stars",
+        "why": "The content is strongly positive, but the uncased model treats the all-caps emphasis mostly the same as lowercase text.",
+        "casing_note": "This is a good live example for explaining what the model loses by removing case distinctions.",
+    },
+]
+
 
 def parse_cli_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Project 4 Streamlit dashboard")
@@ -74,6 +98,28 @@ def _safe_text(path: Path) -> str:
         return ""
 
 
+def _safe_local_squad_lookup(path: Path) -> dict[str, dict[str, str]]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except Exception:
+        return {}
+
+    lookup: dict[str, dict[str, str]] = {}
+    for article in payload.get("data", []):
+        title = str(article.get("title", ""))
+        for paragraph in article.get("paragraphs", []):
+            context = str(paragraph.get("context", ""))
+            for qa in paragraph.get("qas", []):
+                lookup[str(qa.get("id", ""))] = {
+                    "title": title,
+                    "question": str(qa.get("question", "")),
+                    "context": context,
+                }
+    return lookup
+
+
 def _fmt_float(value: object, digits: int = 4) -> str:
     try:
         return f"{float(value):.{digits}f}"
@@ -107,19 +153,48 @@ def _artifact_status_df(output_root: Path, report_tex: Path) -> pd.DataFrame:
 
 
 @st.cache_data(show_spinner=False)
+def load_question_lookup(val_json: str | None, cache_dir: str | None) -> dict[str, dict[str, str]]:
+    if val_json:
+        return _safe_local_squad_lookup(Path(val_json).expanduser())
+
+    try:
+        from datasets import load_dataset
+    except Exception:
+        return {}
+
+    try:
+        dataset = load_dataset("squad", split="validation", cache_dir=cache_dir)
+    except Exception:
+        return {}
+
+    lookup: dict[str, dict[str, str]] = {}
+    for row in dataset:
+        lookup[str(row.get("id", ""))] = {
+            "title": str(row.get("title", "")),
+            "question": str(row.get("question", "")),
+            "context": str(row.get("context", "")),
+        }
+    return lookup
+
+
+@st.cache_data(show_spinner=False)
 def load_bundle(output_root: str, report_tex: str) -> dict:
     root = Path(output_root)
     report_path = Path(report_tex)
+    glove_summary = _safe_json(root / "glove" / "summary.json")
+    bert_summary = _safe_json(root / "bert" / "summary.json")
+    config = bert_summary.get("config", {}) or glove_summary.get("config", {})
     return {
         "root": root,
         "report_tex_path": report_path,
-        "glove_summary": _safe_json(root / "glove" / "summary.json"),
-        "bert_summary": _safe_json(root / "bert" / "summary.json"),
+        "glove_summary": glove_summary,
+        "bert_summary": bert_summary,
         "glove_history": _safe_csv(root / "glove" / "history.csv"),
         "bert_history": _safe_csv(root / "bert" / "history.csv"),
         "comparison": _safe_csv(root / "comparison.csv"),
         "glove_predictions": _safe_json_list(root / "glove" / "predictions.json"),
         "bert_predictions": _safe_json_list(root / "bert" / "predictions.json"),
+        "question_lookup": load_question_lookup(config.get("val_json"), config.get("cache_dir")),
         "report_notes": _safe_text(root / "report_notes.md"),
         "report_tex": _safe_text(report_path),
         "artifact_status": _artifact_status_df(root, report_path),
@@ -324,6 +399,67 @@ def _comparison_metrics(bundle: dict) -> tuple[float | None, float | None]:
     return glove_f1 if glove_f1 is not None else None, delta
 
 
+def _prediction_demo_examples(merged: pd.DataFrame) -> list[dict[str, str]]:
+    if merged.empty:
+        return []
+
+    demos: list[dict[str, str]] = []
+
+    bert_wins = merged[merged["winner"] == "bert"].sort_values("f1_delta_bert_minus_glove", ascending=False)
+    if not bert_wins.empty:
+        row = bert_wins.iloc[0]
+        demos.append(
+            {
+                "label": "Strongest BERT win",
+                "description": "Jump to the saved example where frozen BERT beats GloVe by the widest F1 margin.",
+                "selected_id": str(row["id"]),
+                "winner_filter": "bert",
+                "text_filter": "",
+            }
+        )
+
+    glove_wins = merged[merged["winner"] == "glove"].sort_values("f1_delta_bert_minus_glove", ascending=True)
+    if not glove_wins.empty:
+        row = glove_wins.iloc[0]
+        demos.append(
+            {
+                "label": "Strongest GloVe win",
+                "description": "Useful for showing that the baseline still wins on some individual questions.",
+                "selected_id": str(row["id"]),
+                "winner_filter": "glove",
+                "text_filter": "",
+            }
+        )
+
+    bert_exact = merged[merged.get("bert_exact_match", 0).fillna(0.0) >= 1.0]
+    if not bert_exact.empty:
+        row = bert_exact.sort_values("bert_score", ascending=False).iloc[0]
+        demos.append(
+            {
+                "label": "Clean BERT exact match",
+                "description": "Shows a saved row where the BERT variant hits the gold answer exactly.",
+                "selected_id": str(row["id"]),
+                "winner_filter": "all",
+                "text_filter": "",
+            }
+        )
+
+    tie_rows = merged[merged["winner"] == "tie"]
+    if not tie_rows.empty:
+        row = tie_rows.iloc[0]
+        demos.append(
+            {
+                "label": "Tie example",
+                "description": "A convenient example when both variants land on the same F1.",
+                "selected_id": str(row["id"]),
+                "winner_filter": "tie",
+                "text_filter": "",
+            }
+        )
+
+    return demos
+
+
 def render_overview(bundle: dict, output_root: Path, report_tex: Path) -> None:
     st.subheader("Overview")
     artifact_df = bundle["artifact_status"]
@@ -445,6 +581,22 @@ def render_task1(bundle: dict) -> None:
         """,
         unsafe_allow_html=True,
     )
+
+    st.markdown("**Quick demo reviews**")
+    st.caption("These are illustrative examples for presentation use. They demonstrate how the analyzed model would likely behave, not live inference from the dashboard.")
+    task1_demo_label = st.selectbox(
+        "Choose a quick sentiment demo",
+        [demo["label"] for demo in TASK1_DEMO_REVIEWS],
+        key="task1_demo_label",
+    )
+    selected_demo = next(demo for demo in TASK1_DEMO_REVIEWS if demo["label"] == task1_demo_label)
+    demo_left, demo_right = st.columns([1.4, 1])
+    with demo_left:
+        st.code(selected_demo["text"], language="text")
+    with demo_right:
+        st.metric("Likely class", selected_demo["likely_label"])
+        st.write(selected_demo["why"])
+        st.caption(selected_demo["casing_note"])
 
     left, right = st.columns([1.15, 1])
     with left:
@@ -667,6 +819,25 @@ def _build_prediction_frame(bundle: dict) -> pd.DataFrame:
     else:
         merged["gold_answers_text"] = ""
 
+    question_lookup = bundle.get("question_lookup", {})
+    if question_lookup:
+        meta_df = pd.DataFrame(
+            [
+                {
+                    "id": question_id,
+                    "title": payload.get("title", ""),
+                    "question_text": payload.get("question", ""),
+                    "context_text": payload.get("context", ""),
+                }
+                for question_id, payload in question_lookup.items()
+            ]
+        )
+        if not meta_df.empty:
+            merged = merged.merge(meta_df, on="id", how="left")
+    for col in ("title", "question_text", "context_text"):
+        if col not in merged.columns:
+            merged[col] = ""
+
     required_cols = [
         "glove_prediction",
         "glove_exact_match",
@@ -720,6 +891,29 @@ def render_predictions(bundle: dict) -> None:
         st.info("Prediction files are not available yet.")
         return
 
+    st.session_state.setdefault("prediction_winner_filter", "all")
+    st.session_state.setdefault("prediction_text_filter", "")
+    st.session_state.setdefault("prediction_row_index", 0)
+    st.session_state.setdefault("prediction_selected_id", "")
+
+    demos = _prediction_demo_examples(merged)
+    if demos:
+        st.markdown("**Quick demo jumps**")
+        st.caption("One click jumps to useful saved examples for live presentation.")
+        demo_cols = st.columns(len(demos))
+        for idx, demo in enumerate(demos):
+            if demo_cols[idx].button(demo["label"], key=f"prediction_demo_{idx}", use_container_width=True):
+                st.session_state["prediction_winner_filter"] = demo["winner_filter"]
+                st.session_state["prediction_text_filter"] = demo["text_filter"]
+                st.session_state["prediction_selected_id"] = demo["selected_id"]
+                st.session_state["prediction_row_index"] = 0
+        selected_demo = next(
+            (demo for demo in demos if demo["selected_id"] == st.session_state.get("prediction_selected_id")),
+            None,
+        )
+        if selected_demo is not None:
+            st.info(selected_demo["description"])
+
     long_rows: list[dict] = []
     for _, row in merged.iterrows():
         for variant in ("glove", "bert"):
@@ -738,14 +932,24 @@ def render_predictions(bundle: dict) -> None:
 
     left, right = st.columns([1.1, 1])
     with left:
-        winner_filter = st.selectbox("Winner filter", ["all", "bert", "glove", "tie", "unknown"])
-        text_filter = st.text_input("Search gold or prediction text", value="").strip().lower()
+        winner_filter = st.selectbox(
+            "Winner filter",
+            ["all", "bert", "glove", "tie", "unknown"],
+            key="prediction_winner_filter",
+        )
+        text_filter = st.text_input(
+            "Search gold or prediction text",
+            key="prediction_text_filter",
+        ).strip().lower()
         view = merged.copy()
         if winner_filter != "all":
             view = view[view["winner"] == winner_filter]
         if text_filter:
             mask = (
-                view["gold_answers_text"].astype(str).str.lower().str.contains(text_filter, na=False)
+                view["question_text"].astype(str).str.lower().str.contains(text_filter, na=False)
+                | view["gold_answers_text"].astype(str).str.lower().str.contains(text_filter, na=False)
+                | view["title"].astype(str).str.lower().str.contains(text_filter, na=False)
+                | view["context_text"].astype(str).str.lower().str.contains(text_filter, na=False)
                 | view.get("glove_prediction", pd.Series(index=view.index, dtype=str))
                 .astype(str)
                 .str.lower()
@@ -756,12 +960,14 @@ def render_predictions(bundle: dict) -> None:
                 .str.contains(text_filter, na=False)
             )
             view = view[mask]
+        view = view.reset_index(drop=True)
 
         st.dataframe(
             view[
                 [
                     "id",
                     "winner",
+                    "question_text",
                     "gold_answers_text",
                     "glove_prediction",
                     "bert_prediction",
@@ -789,15 +995,40 @@ def render_predictions(bundle: dict) -> None:
         st.warning("No rows match the current filters.")
         return
 
+    target_id = st.session_state.get("prediction_selected_id", "")
+    if target_id:
+        matches = view.index[view["id"] == target_id].tolist()
+        if matches:
+            st.session_state["prediction_row_index"] = int(matches[0])
+        st.session_state["prediction_selected_id"] = ""
+
     if len(view) == 1:
         selected_idx = 0
+        st.session_state["prediction_row_index"] = 0
         st.caption("Only one row matches the current filters.")
     else:
-        selected_idx = st.slider("Inspect row", min_value=0, max_value=len(view) - 1, value=0)
+        current_idx = int(st.session_state.get("prediction_row_index", 0))
+        if current_idx < 0 or current_idx >= len(view):
+            st.session_state["prediction_row_index"] = 0
+        selected_idx = st.slider(
+            "Inspect row",
+            min_value=0,
+            max_value=len(view) - 1,
+            key="prediction_row_index",
+        )
     row = view.iloc[selected_idx]
+
+    if str(row.get("title", "")).strip():
+        st.caption(f"Title: {row.get('title', '')}")
+
+    st.markdown("**Question**")
+    st.code(row.get("question_text", "") or "Question text not available.", language="text")
 
     st.markdown("**Gold Answers**")
     st.code(row.get("gold_answers_text", ""), language="text")
+
+    with st.expander("Context passage"):
+        st.write(row.get("context_text", "") or "Context text not available.")
 
     c1, c2 = st.columns(2)
     with c1:

@@ -1,0 +1,354 @@
+\documentclass{beamer}
+\usetheme{Madrid}
+\usecolortheme{default}
+\setbeamertemplate{footline}[frame number]
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{mathtools}
+\usepackage{array}
+
+\title{Spring 2026 Natural Language Processing (CSCI-6515)}
+\subtitle{Project 4: Sentiment Analysis using BERT and Reading Comprehension with BiDAF + BERT}
+\author{
+\textbf{Kamal Ahmadov} \\ \small kahmadov24700@ada.edu.az; kamal.ahmadov@gwu.edu \\ \and
+\textbf{Rufat Guliyev} \\ \small rguliyev24988@ada.edu.az; rufat.guliyev@gwu.edu
+}
+\institute{ADA University \& George Washington University}
+\date{April 8, 2026}
+
+\newcommand{\EM}{\operatorname{EM}}
+\newcommand{\Fone}{\operatorname{F1}}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}{Outline}
+\tableofcontents
+\end{frame}
+
+\section{Project Scope}
+
+\begin{frame}{Motivation and Scope}
+\begin{itemize}
+  \item Project 4 combines two transformer-related tasks:
+  \begin{itemize}
+    \item \textbf{Task 1:} theoretical analysis of a fine-tuned BERT sentiment model
+    \item \textbf{Task 2:} implemented QA system with BiDAF and frozen BERT
+  \end{itemize}
+  \item The shared question is the same:
+  \begin{itemize}
+    \item how useful are contextual transformer representations for downstream NLP tasks?
+  \end{itemize}
+  \item Deliverables in this repository:
+  \begin{itemize}
+    \item Task 1 report section
+    \item Task 2 PyTorch implementation + artifacts
+    \item Streamlit UI for results
+  \end{itemize}
+\end{itemize}
+\end{frame}
+
+\section{Task 1: BERT Sentiment Analysis}
+
+\begin{frame}{Task 1: Selected Open-Source Model}
+\small
+\textbf{Model analyzed}
+\begin{itemize}
+  \item \texttt{nlptown/bert-base-multilingual-uncased-sentiment}
+  \item Base encoder: \texttt{bert-base-multilingual-uncased}
+  \item Fine-tuned for 5-class product-review sentiment
+\end{itemize}
+
+\vspace{0.4em}
+\textbf{Why this model?}
+\begin{itemize}
+  \item Open-source and well documented
+  \item More relevant to multilingual transfer than an English-only sentiment model
+  \item Better fit for the Azerbaijani applicability question
+\end{itemize}
+
+\vspace{0.4em}
+\textbf{Fine-tuning languages}
+\begin{itemize}
+  \item English, Dutch, German, French, Spanish, Italian
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Task 1: Inputs, Outputs, and Light Math}
+\small
+\textbf{Input pipeline}
+\begin{itemize}
+  \item Review text $\rightarrow$ WordPiece tokenizer
+  \item Lowercasing because the model is \texttt{uncased}
+  \item Output tensors: \texttt{input\_ids}, \texttt{attention\_mask}, optional \texttt{token\_type\_ids}
+\end{itemize}
+
+\vspace{0.4em}
+\textbf{Classifier output}
+\[
+p(y \mid x)=\operatorname{softmax}(W h_{\texttt{[CLS]}} + b)
+\]
+
+\begin{itemize}
+  \item 5 output classes: 1, 2, 3, 4, 5 stars
+  \item Max input size: 512 subword positions
+\end{itemize}
+
+\vspace{0.4em}
+\textbf{Case sensitivity}
+\begin{itemize}
+  \item Not case sensitive in practice
+  \item Useful for noisy reviews, but loses emphasis from all-caps text
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Task 1: Can It Work for Azerbaijani?}
+\small
+\textbf{Short answer: yes as a baseline, no as a final solution}
+
+\vspace{0.4em}
+\textbf{Why transfer is possible}
+\begin{itemize}
+  \item multilingual BERT base encoder
+  \item subword tokenization reduces OOV problems
+  \item useful for morphologically rich languages
+\end{itemize}
+
+\vspace{0.4em}
+\textbf{Why direct zero-shot use is risky}
+\begin{itemize}
+  \item no Azerbaijani fine-tuning
+  \item trained on six other languages only
+  \item Azerbaijani is agglutinative, so sentiment-bearing forms appear with many suffixes
+\end{itemize}
+
+\vspace{0.4em}
+\textbf{Takeaway}
+\begin{itemize}
+  \item Good starting point for transfer learning
+  \item Reliable Azerbaijani sentiment analysis would still require local fine-tuning
+\end{itemize}
+\end{frame}
+
+\section{Task 2: Reading Comprehension}
+
+\begin{frame}{Task 2 Goal and Variants}
+\small
+\textbf{Goal}
+\begin{itemize}
+  \item Given a question and a context passage, predict the answer span inside the context
+\end{itemize}
+
+\vspace{0.4em}
+\textbf{Implemented variants}
+\begin{itemize}
+  \item \textbf{BiDAF + GloVe}: traditional embedding baseline
+  \item \textbf{BiDAF + frozen BERT}: contextual embeddings from \texttt{bert-base-uncased}
+\end{itemize}
+
+\vspace{0.4em}
+\textbf{Dataset}
+\begin{itemize}
+  \item SQuAD 1.1
+  \item Word-level preprocessing with overlapping context windows
+\end{itemize}
+
+\vspace{0.4em}
+\textbf{Core engineering choice}
+\begin{itemize}
+  \item Same BiDAF span-prediction stack for both variants
+  \item Only the embedding source changes
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Task 2 Architecture (with light math)}
+\small
+\textbf{BiDAF pipeline}
+\begin{itemize}
+  \item Embeddings
+  \item 2-layer highway network
+  \item Contextual BiLSTM
+  \item Bidirectional attention flow
+  \item Modeling layers
+  \item Start/end span heads
+\end{itemize}
+
+\vspace{0.4em}
+\textbf{Prediction rule}
+\[
+(\hat{s}, \hat{e}) = \arg\max_{i \le j} \; p_{\text{start}}(i)\, p_{\text{end}}(j)
+\]
+
+\textbf{Training loss}
+\[
+\mathcal{L} = \operatorname{CE}(p_{\text{start}}, s^\ast) + \operatorname{CE}(p_{\text{end}}, e^\ast)
+\]
+
+\vspace{0.4em}
+\textbf{BERT integration}
+\begin{itemize}
+  \item tokenize words into subtokens
+  \item take first-subtoken hidden state for each word
+  \item project BERT vectors into the BiDAF input space
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Task 2 Experimental Setup}
+\small
+\textbf{Reported run: full model settings on a larger CPU-feasible slice}
+\begin{itemize}
+  \item Train examples: 8192
+  \item Validation examples: 2048
+  \item Train windows: 9390
+  \item Validation windows: 3069
+  \item Epochs: 4
+  \item Batch size: 16
+  \item Hidden size: 64
+  \item Context window: 160 words
+  \item Stride: 64 words
+\end{itemize}
+
+\vspace{0.4em}
+\textbf{Evaluation}
+\[
+\EM = \mathbf{1}[\hat{a}=a^\ast],
+\qquad
+\Fone = \frac{2PR}{P+R}
+\]
+
+\begin{itemize}
+  \item Best checkpoint chosen by validation F1
+  \item EM and F1 computed with SQuAD-style normalization
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Task 2 Results}
+\small
+\begin{table}
+\centering
+\begin{tabular}{lrrr}
+\toprule
+Variant & Best epoch & EM & F1 \\
+\midrule
+BiDAF + GloVe & 3 & 0.1216 & 0.1819 \\
+BiDAF + frozen BERT & 4 & 0.2642 & 0.3600 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\vspace{0.4em}
+\textbf{Comparison}
+\begin{itemize}
+  \item Frozen BERT delta EM: $+0.1426$
+  \item Frozen BERT delta F1: $+0.1782$
+\end{itemize}
+
+\vspace{0.4em}
+\textbf{Interpretation}
+\begin{itemize}
+  \item The QA pipeline works end to end and scales beyond the earlier medium preset
+  \item Under this larger run, frozen BERT clearly beats the traditional word-vector baseline
+  \item The BERT gain is large enough to support the integration choice
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Task 2 Error Analysis and Engineering Notes}
+\small
+\textbf{Why scores still have room to improve}
+\begin{itemize}
+  \item still a capped subset rather than the full SQuAD training set
+  \item BERT encoder is frozen, so it cannot adapt to the QA objective
+  \item exact match is very strict
+\end{itemize}
+
+\vspace{0.4em}
+\textbf{Important debugging issue we found}
+\begin{itemize}
+  \item some contexts contained standalone Unicode formatting, combining-mark, or replacement-character tokens
+  \item the word tokenizer kept them, but BERT dropped them
+  \item this broke word-level BERT pooling on larger reruns
+\end{itemize}
+
+\vspace{0.4em}
+\textbf{Fix}
+\begin{itemize}
+  \item filter out tokens made only of control/format or combining-mark characters
+  \item also drop standalone replacement-character tokens such as \texttt{�}
+  \item after the fix, the larger compare run completes successfully
+\end{itemize}
+\end{frame}
+
+\section{Extra Task: UI}
+
+\begin{frame}{Extra Task: Streamlit UI}
+\small
+\textbf{Implemented UI}
+\begin{itemize}
+  \item \texttt{src/project4\_dashboard.py}
+  \item launch with \texttt{bash scripts/run\_project4\_ui.sh}
+\end{itemize}
+
+\vspace{0.4em}
+\textbf{What the UI shows}
+\begin{itemize}
+  \item Task 1 BERT model summary
+  \item Task 2 metric boards and comparison charts
+  \item prediction inspector for GloVe vs BERT
+  \item artifact explorer and runbook commands
+\end{itemize}
+
+\vspace{0.4em}
+\textbf{Why it matters}
+\begin{itemize}
+  \item easier to demonstrate during presentation
+  \item easier to inspect predictions and saved outputs interactively
+\end{itemize}
+\end{frame}
+
+\section{Conclusion}
+
+\begin{frame}{Conclusion}
+\small
+\textbf{Task 1}
+\begin{itemize}
+  \item A multilingual fine-tuned BERT sentiment model has clear inputs, outputs, and limitations
+  \item It is a reasonable transfer baseline for Azerbaijani, but not a complete solution
+\end{itemize}
+
+\vspace{0.4em}
+\textbf{Task 2}
+\begin{itemize}
+  \item We implemented BiDAF in PyTorch and integrated frozen BERT embeddings
+  \item We trained and evaluated on SQuAD with EM and F1
+  \item In the reported larger run, frozen BERT clearly outperformed the word-vector baseline
+\end{itemize}
+
+\vspace{0.4em}
+\textbf{Overall}
+\begin{itemize}
+  \item All major Project 4 deliverables are present in the repo:
+  \begin{itemize}
+    \item report
+    \item code and experiment artifacts
+    \item Streamlit UI
+    \item presentation slides
+  \end{itemize}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Questions}
+\centering
+\Large Thank you
+
+\vspace{0.8em}
+\normalsize Questions and discussion
+\end{frame}
+
+\end{document}

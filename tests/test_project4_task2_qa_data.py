@@ -32,6 +32,14 @@ def test_word_tokenize_with_offsets_skips_format_only_unicode_marks():
     assert offsets == [(0, 5), (10, 14)]
 
 
+def test_word_tokenize_with_offsets_skips_replacement_character_tokens():
+    context = "alpha \ufffd beta"
+    words, offsets = word_tokenize_with_offsets(context)
+
+    assert words == ["alpha", "beta"]
+    assert offsets == [(0, 5), (8, 12)]
+
+
 def test_build_windowed_examples_keeps_only_train_windows_containing_gold_span():
     example = SquadExample(
         question_id="q1",
