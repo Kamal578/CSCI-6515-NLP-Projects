@@ -98,3 +98,23 @@ def test_frozen_bert_bidaf_forward_shapes(tmp_path: Path):
     start_logits, end_logits = model(batch)
     assert start_logits.shape == (2, 3)
     assert end_logits.shape == (2, 3)
+
+
+def test_partial_bert_unfreeze_marks_encoder_layers_trainable(tmp_path: Path):
+    model_dir = _make_tiny_bert_dir(tmp_path)
+    model = FrozenBertBidafQaModel(
+        bert_model_name=str(model_dir),
+        cache_dir=None,
+        projection_dim=32,
+        hidden_size=8,
+        dropout=0.1,
+        bert_max_length=64,
+        bert_unfreeze_last_n=1,
+    )
+
+    trainable_bert = [name for name, parameter in model.named_parameters() if name.startswith("word_encoder.bert.") and parameter.requires_grad]
+    frozen_bert = [name for name, parameter in model.named_parameters() if name.startswith("word_encoder.bert.") and not parameter.requires_grad]
+
+    assert trainable_bert
+    assert any(name.startswith("word_encoder.bert.encoder.layer.0.") for name in trainable_bert)
+    assert frozen_bert == []

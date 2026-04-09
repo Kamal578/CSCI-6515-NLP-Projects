@@ -34,7 +34,9 @@ GRAD_ACCUMULATION_STEPS="${GRAD_ACCUMULATION_STEPS:-1}"
 HIDDEN_SIZE="${HIDDEN_SIZE:-64}"
 LEARNING_RATE="${LEARNING_RATE:-1e-3}"
 GLOVE_LEARNING_RATE="${GLOVE_LEARNING_RATE:-2e-3}"
-BERT_LEARNING_RATE="${BERT_LEARNING_RATE:-5e-4}"
+BERT_LEARNING_RATE="${BERT_LEARNING_RATE:-3e-5}"
+BERT_UNFREEZE_LAST_N="${BERT_UNFREEZE_LAST_N:-0}"
+BERT_GRADIENT_CHECKPOINTING="${BERT_GRADIENT_CHECKPOINTING:-0}"
 EMBEDDING_DIM="${EMBEDDING_DIM:-}"
 DEVICE="${DEVICE:-auto}"
 MAX_TRAIN_EXAMPLES="${MAX_TRAIN_EXAMPLES:-}"
@@ -67,6 +69,7 @@ CMD=(
   --learning_rate "$LEARNING_RATE"
   --glove_learning_rate "$GLOVE_LEARNING_RATE"
   --bert_learning_rate "$BERT_LEARNING_RATE"
+  --bert_unfreeze_last_n "$BERT_UNFREEZE_LAST_N"
   --hidden_size "$HIDDEN_SIZE"
   --embedding_dim "$EMBEDDING_DIM"
   --device "$DEVICE"
@@ -92,6 +95,9 @@ if [[ "$MEDIUM" == "1" ]]; then
 fi
 if [[ "$LARGE" == "1" ]]; then
   CMD+=(--large)
+fi
+if [[ "$BERT_GRADIENT_CHECKPOINTING" == "1" ]]; then
+  CMD+=(--bert_gradient_checkpointing)
 fi
 
 log "Project 4 Task 2 run started"

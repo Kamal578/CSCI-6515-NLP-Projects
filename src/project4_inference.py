@@ -134,6 +134,8 @@ def load_qa_bundle(variant_root: str | Path, device: str = "auto") -> QaBundle:
             hidden_size=int(config["hidden_size"]),
             dropout=float(config["dropout"]),
             bert_max_length=int(config["bert_max_length"]),
+            bert_unfreeze_last_n=int(config.get("bert_unfreeze_last_n", 0)),
+            bert_gradient_checkpointing=bool(config.get("bert_gradient_checkpointing", False)),
         )
     model.load_state_dict(state_dict)
     runtime_device = resolve_device(device)

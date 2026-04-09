@@ -42,7 +42,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Project 4 Task 2: Reading comprehension with BiDAF using "
-            "either pretrained GloVe or frozen BERT embeddings on SQuAD 1.1."
+            "either pretrained GloVe or BERT embeddings on SQuAD 1.1."
         )
     )
     parser.add_argument("--variant", choices=["glove", "bert", "compare"], default="compare")
@@ -59,8 +59,19 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--eval_batch_size", type=int, default=8)
     parser.add_argument("--learning_rate", type=float, default=1e-3)
     parser.add_argument("--glove_learning_rate", type=float, default=2e-3)
-    parser.add_argument("--bert_learning_rate", type=float, default=5e-4)
+    parser.add_argument("--bert_learning_rate", type=float, default=3e-5)
     parser.add_argument("--weight_decay", type=float, default=1e-5)
+    parser.add_argument(
+        "--bert_unfreeze_last_n",
+        type=int,
+        default=0,
+        help="0 freezes BERT, positive unfreezes embeddings plus the last N encoder layers, -1 unfreezes all layers.",
+    )
+    parser.add_argument(
+        "--bert_gradient_checkpointing",
+        action="store_true",
+        help="Enable gradient checkpointing when any BERT layers are trainable.",
+    )
     parser.add_argument("--grad_accumulation_steps", type=int, default=1)
     parser.add_argument("--grad_clip", type=float, default=5.0)
     parser.add_argument("--patience", type=int, default=2)
@@ -111,6 +122,7 @@ def _apply_medium_defaults(args: argparse.Namespace) -> None:
     args.context_window_words = min(args.context_window_words, 96)
     args.doc_stride_words = min(args.doc_stride_words, 48)
     args.max_question_words = min(args.max_question_words, 24)
+    args.bert_unfreeze_last_n = 0
 
 
 def _apply_large_defaults(args: argparse.Namespace) -> None:
@@ -125,6 +137,8 @@ def _apply_large_defaults(args: argparse.Namespace) -> None:
     args.context_window_words = min(args.context_window_words, 192)
     args.doc_stride_words = min(args.doc_stride_words, 64)
     args.max_question_words = min(args.max_question_words, 32)
+    if args.bert_unfreeze_last_n == 0:
+        args.bert_unfreeze_last_n = 4
 
 
 def _resolve_device(requested: str) -> torch.device:
@@ -220,6 +234,8 @@ def _build_variant_summary(
             "learning_rate": args.learning_rate,
             "glove_learning_rate": args.glove_learning_rate,
             "bert_learning_rate": args.bert_learning_rate,
+            "bert_unfreeze_last_n": args.bert_unfreeze_last_n,
+            "bert_gradient_checkpointing": bool(args.bert_gradient_checkpointing),
             "weight_decay": args.weight_decay,
             "grad_accumulation_steps": args.grad_accumulation_steps,
             "grad_clip": args.grad_clip,
@@ -380,15 +396,49 @@ def _build_model(
         hidden_size=args.hidden_size,
         dropout=args.dropout,
         bert_max_length=args.bert_max_length,
+        bert_unfreeze_last_n=args.bert_unfreeze_last_n,
+        bert_gradient_checkpointing=args.bert_gradient_checkpointing,
     )
 
 
-def _resolve_variant_learning_rate(variant: str, args: argparse.Namespace) -> float:
-    if variant == "bert":
-        return float(args.bert_learning_rate)
+def _build_optimizer(
+    model: nn.Module,
+    variant: str,
+    args: argparse.Namespace,
+) -> torch.optim.Optimizer:
     if variant == "glove":
-        return float(args.glove_learning_rate)
-    return float(args.learning_rate)
+        return AdamW(model.parameters(), lr=float(args.glove_learning_rate), weight_decay=args.weight_decay)
+
+    bert_parameters: list[torch.nn.Parameter] = []
+    head_parameters: list[torch.nn.Parameter] = []
+    for name, parameter in model.named_parameters():
+        if not parameter.requires_grad:
+            continue
+        if name.startswith("word_encoder.bert."):
+            bert_parameters.append(parameter)
+        else:
+            head_parameters.append(parameter)
+
+    parameter_groups = []
+    if bert_parameters:
+        parameter_groups.append(
+            {
+                "params": bert_parameters,
+                "lr": float(args.bert_learning_rate),
+                "weight_decay": args.weight_decay,
+            }
+        )
+    if head_parameters:
+        parameter_groups.append(
+            {
+                "params": head_parameters,
+                "lr": float(args.learning_rate),
+                "weight_decay": args.weight_decay,
+            }
+        )
+    if not parameter_groups:
+        raise RuntimeError(f"No trainable parameters were found for variant={variant}.")
+    return AdamW(parameter_groups)
 
 
 def _training_step(
@@ -487,11 +537,7 @@ def _train_variant(
         f"val_batches={len(val_loader)}",
     )
     model = _build_model(variant, loader_metadata, args).to(device)
-    optimizer = AdamW(
-        model.parameters(),
-        lr=_resolve_variant_learning_rate(variant, args),
-        weight_decay=args.weight_decay,
-    )
+    optimizer = _build_optimizer(model=model, variant=variant, args=args)
     criterion = nn.CrossEntropyLoss()
 
     example_lookup = {example.question_id: example for example in val_examples}
@@ -674,8 +720,8 @@ def _write_comparison(
             [
                 "",
                 "## BERT vs GloVe",
-                f"- Frozen BERT delta EM: {delta_em:+.4f}",
-                f"- Frozen BERT delta F1: {delta_f1:+.4f}",
+                f"- BERT delta EM: {delta_em:+.4f}",
+                f"- BERT delta F1: {delta_f1:+.4f}",
             ]
         )
 
@@ -696,6 +742,8 @@ def main() -> None:
         raise ValueError("--max_question_words must be > 0")
     if args.grad_accumulation_steps <= 0:
         raise ValueError("--grad_accumulation_steps must be > 0")
+    if args.bert_unfreeze_last_n < -1:
+        raise ValueError("--bert_unfreeze_last_n must be -1, 0, or a positive integer")
     _set_seed(args.seed)
     device = _resolve_device(args.device)
 

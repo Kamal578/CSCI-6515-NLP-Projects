@@ -143,8 +143,15 @@ class GloveBidafQaModel(nn.Module):
         return self.core(context_embeddings, question_embeddings, batch.context_mask, batch.question_mask)
 
 
-class FrozenBertWordEncoder(nn.Module):
-    def __init__(self, model_name: str, cache_dir: str | None, bert_max_length: int):
+class BertWordEncoder(nn.Module):
+    def __init__(
+        self,
+        model_name: str,
+        cache_dir: str | None,
+        bert_max_length: int,
+        unfreeze_last_n: int = 0,
+        gradient_checkpointing: bool = False,
+    ):
         super().__init__()
         try:
             from transformers import BertModel, BertTokenizerFast
@@ -153,18 +160,45 @@ class FrozenBertWordEncoder(nn.Module):
 
         self.tokenizer = BertTokenizerFast.from_pretrained(model_name, cache_dir=cache_dir)
         self.bert = BertModel.from_pretrained(model_name, cache_dir=cache_dir)
-        for parameter in self.bert.parameters():
-            parameter.requires_grad = False
-        self.bert.eval()
         self.bert_max_length = bert_max_length
+        self.unfreeze_last_n = int(unfreeze_last_n)
+        self.is_frozen = self.unfreeze_last_n == 0
+        self._configure_finetuning()
+        if gradient_checkpointing and not self.is_frozen and hasattr(self.bert, "gradient_checkpointing_enable"):
+            self.bert.gradient_checkpointing_enable()
 
     @property
     def hidden_size(self) -> int:
         return int(self.bert.config.hidden_size)
 
+    def _configure_finetuning(self) -> None:
+        for parameter in self.bert.parameters():
+            parameter.requires_grad = False
+
+        if self.unfreeze_last_n < 0:
+            for parameter in self.bert.parameters():
+                parameter.requires_grad = True
+            return
+
+        if self.unfreeze_last_n == 0:
+            self.bert.eval()
+            return
+
+        encoder_layers = list(self.bert.encoder.layer)
+        layers_to_unfreeze = encoder_layers[-self.unfreeze_last_n :]
+        for parameter in self.bert.embeddings.parameters():
+            parameter.requires_grad = True
+        for layer in layers_to_unfreeze:
+            for parameter in layer.parameters():
+                parameter.requires_grad = True
+        if getattr(self.bert, "pooler", None) is not None:
+            for parameter in self.bert.pooler.parameters():
+                parameter.requires_grad = True
+
     def forward(self, word_batches: list[list[str]]) -> tuple[torch.Tensor, torch.Tensor]:
         device = next(self.bert.parameters()).device
-        self.bert.eval()
+        if self.is_frozen:
+            self.bert.eval()
         encoding = self.tokenizer(
             word_batches,
             is_split_into_words=True,
@@ -176,7 +210,8 @@ class FrozenBertWordEncoder(nn.Module):
         word_id_lists = [encoding.word_ids(batch_index=batch_idx) for batch_idx in range(len(word_batches))]
         model_inputs = {key: value.to(device) for key, value in encoding.items()}
 
-        with torch.no_grad():
+        context = torch.no_grad() if self.is_frozen else torch.enable_grad()
+        with context:
             outputs = self.bert(**model_inputs).last_hidden_state
 
         batch_size = len(word_batches)
@@ -211,12 +246,16 @@ class FrozenBertBidafQaModel(nn.Module):
         hidden_size: int,
         dropout: float,
         bert_max_length: int,
+        bert_unfreeze_last_n: int = 0,
+        bert_gradient_checkpointing: bool = False,
     ):
         super().__init__()
-        self.word_encoder = FrozenBertWordEncoder(
+        self.word_encoder = BertWordEncoder(
             model_name=bert_model_name,
             cache_dir=cache_dir,
             bert_max_length=bert_max_length,
+            unfreeze_last_n=bert_unfreeze_last_n,
+            gradient_checkpointing=bert_gradient_checkpointing,
         )
         self.projection = nn.Linear(self.word_encoder.hidden_size, projection_dim)
         self.core = BidafCore(
