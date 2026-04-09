@@ -9,10 +9,17 @@ import pandas as pd
 import plotly.express as px
 import streamlit as st
 
-from .project4_inference import load_qa_bundle, load_sentiment_bundle, predict_qa_answer, predict_sentiment
+CURRENT_DIR = Path(__file__).resolve().parent
+PROJECT_ROOT = CURRENT_DIR.parent
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
+
+try:
+    from .project4_inference import load_qa_bundle, load_sentiment_bundle, predict_qa_answer, predict_sentiment
+except ImportError:
+    from src.project4_inference import load_qa_bundle, load_sentiment_bundle, predict_qa_answer, predict_sentiment
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_SENTIMENT_ROOT = PROJECT_ROOT / "outputs" / "project4" / "task1_sentiment"
 DEFAULT_QA_ROOT = PROJECT_ROOT / "outputs" / "project4" / "task2_reading_comprehension"
 DEFAULT_REPORT_TEX = PROJECT_ROOT / "report" / "project4_report.tex"

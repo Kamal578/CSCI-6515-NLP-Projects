@@ -57,7 +57,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--epochs", type=int, default=4)
     parser.add_argument("--batch_size", type=int, default=16)
     parser.add_argument("--eval_batch_size", type=int, default=8)
-    parser.add_argument("--learning_rate", type=float, default=2e-3)
+    parser.add_argument("--learning_rate", type=float, default=1e-3)
+    parser.add_argument("--glove_learning_rate", type=float, default=2e-3)
+    parser.add_argument("--bert_learning_rate", type=float, default=5e-4)
     parser.add_argument("--weight_decay", type=float, default=1e-5)
     parser.add_argument("--grad_accumulation_steps", type=int, default=1)
     parser.add_argument("--grad_clip", type=float, default=5.0)
@@ -75,6 +77,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", choices=["auto", "cpu", "cuda", "mps"], default="auto")
     parser.add_argument("--medium", action="store_true", help="Run a medium-size CPU-friendly configuration.")
+    parser.add_argument("--large", action="store_true", help="Run a larger preset intended for stronger metrics.")
     parser.add_argument("--log_every_steps", type=int, default=25, help="Log every N train/eval batches.")
     parser.add_argument("--smoke", action="store_true", help="Run a tiny CPU-friendly smoke configuration.")
     return parser.parse_args()
@@ -108,6 +111,20 @@ def _apply_medium_defaults(args: argparse.Namespace) -> None:
     args.context_window_words = min(args.context_window_words, 96)
     args.doc_stride_words = min(args.doc_stride_words, 48)
     args.max_question_words = min(args.max_question_words, 24)
+
+
+def _apply_large_defaults(args: argparse.Namespace) -> None:
+    if not args.large or args.smoke or args.medium:
+        return
+    args.max_train_examples = 4096 if args.max_train_examples is None else args.max_train_examples
+    args.max_val_examples = 1024 if args.max_val_examples is None else args.max_val_examples
+    args.epochs = max(args.epochs, 4)
+    args.batch_size = min(args.batch_size, 8)
+    args.eval_batch_size = min(args.eval_batch_size, 8)
+    args.hidden_size = max(args.hidden_size, 64)
+    args.context_window_words = min(args.context_window_words, 192)
+    args.doc_stride_words = min(args.doc_stride_words, 64)
+    args.max_question_words = min(args.max_question_words, 32)
 
 
 def _resolve_device(requested: str) -> torch.device:
@@ -201,6 +218,8 @@ def _build_variant_summary(
             "batch_size": args.batch_size,
             "eval_batch_size": args.eval_batch_size,
             "learning_rate": args.learning_rate,
+            "glove_learning_rate": args.glove_learning_rate,
+            "bert_learning_rate": args.bert_learning_rate,
             "weight_decay": args.weight_decay,
             "grad_accumulation_steps": args.grad_accumulation_steps,
             "grad_clip": args.grad_clip,
@@ -216,6 +235,7 @@ def _build_variant_summary(
             "seed": args.seed,
             "device": str(device),
             "medium": bool(args.medium),
+            "large": bool(args.large),
             "smoke": bool(args.smoke),
             "log_every_steps": args.log_every_steps,
         },
@@ -363,6 +383,14 @@ def _build_model(
     )
 
 
+def _resolve_variant_learning_rate(variant: str, args: argparse.Namespace) -> float:
+    if variant == "bert":
+        return float(args.bert_learning_rate)
+    if variant == "glove":
+        return float(args.glove_learning_rate)
+    return float(args.learning_rate)
+
+
 def _training_step(
     model: nn.Module,
     batch,
@@ -459,7 +487,11 @@ def _train_variant(
         f"val_batches={len(val_loader)}",
     )
     model = _build_model(variant, loader_metadata, args).to(device)
-    optimizer = AdamW(model.parameters(), lr=args.learning_rate, weight_decay=args.weight_decay)
+    optimizer = AdamW(
+        model.parameters(),
+        lr=_resolve_variant_learning_rate(variant, args),
+        weight_decay=args.weight_decay,
+    )
     criterion = nn.CrossEntropyLoss()
 
     example_lookup = {example.question_id: example for example in val_examples}
@@ -655,6 +687,7 @@ def main() -> None:
     args = parse_args()
     _apply_smoke_defaults(args)
     _apply_medium_defaults(args)
+    _apply_large_defaults(args)
     if args.context_window_words <= 0:
         raise ValueError("--context_window_words must be > 0")
     if args.doc_stride_words <= 0:

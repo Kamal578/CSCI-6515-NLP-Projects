@@ -12,4 +12,5 @@ plotly
 scikit-learn
 scipy
 torch
+torchvision
 pytest

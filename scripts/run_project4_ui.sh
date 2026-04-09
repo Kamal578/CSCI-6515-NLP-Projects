@@ -12,4 +12,7 @@ else
 fi
 
 STREAMLIT_BROWSER_GATHER_USAGE_STATS=false \
-"$STREAMLIT_BIN" run src/project4_dashboard.py "$@" -- --sentiment-root "${SENTIMENT_ROOT}" --qa-root "${QA_ROOT}" --report-tex "${REPORT_TEX}"
+STREAMLIT_SERVER_FILE_WATCHER_TYPE=none \
+"$STREAMLIT_BIN" run src/project4_dashboard.py \
+  --server.fileWatcherType none \
+  "$@" -- --sentiment-root "${SENTIMENT_ROOT}" --qa-root "${QA_ROOT}" --report-tex "${REPORT_TEX}"

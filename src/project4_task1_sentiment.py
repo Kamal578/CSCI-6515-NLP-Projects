@@ -15,7 +15,7 @@ import numpy as np
 import torch
 from sklearn.metrics import accuracy_score, classification_report, confusion_matrix, f1_score
 from torch.optim import AdamW
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, WeightedRandomSampler
 
 from .project3_common import ensure_dir, write_json
 
@@ -120,6 +120,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--gradient_accumulation_steps", type=int, default=1)
     parser.add_argument("--grad_clip", type=float, default=1.0)
     parser.add_argument("--patience", type=int, default=2)
+    parser.add_argument(
+        "--balance_strategy",
+        type=str,
+        choices=["none", "class_weights", "weighted_sampler", "both"],
+        default="both",
+        help="How to counter label imbalance during training.",
+    )
     parser.add_argument("--num_workers", type=int, default=0)
     parser.add_argument("--seed", type=int, default=42)
     parser.add_argument("--device", choices=["auto", "cpu", "cuda", "mps"], default="auto")
@@ -398,6 +405,28 @@ def _metrics_from_predictions(gold: list[int], pred: list[int], label_names: lis
     }
 
 
+def _build_class_weights(train_dataset, num_labels: int) -> torch.Tensor:
+    label_counts = Counter(int(label) for label in train_dataset["label"])
+    weights = []
+    total = sum(label_counts.values())
+    for label_id in range(num_labels):
+        count = label_counts.get(label_id, 0)
+        if count == 0:
+            weights.append(0.0)
+        else:
+            weights.append(total / (num_labels * count))
+    return torch.tensor(weights, dtype=torch.float32)
+
+
+def _build_weighted_sampler(train_dataset, class_weights: torch.Tensor) -> WeightedRandomSampler:
+    sample_weights = [float(class_weights[int(label)]) for label in train_dataset["label"]]
+    return WeightedRandomSampler(
+        weights=torch.tensor(sample_weights, dtype=torch.double),
+        num_samples=len(sample_weights),
+        replacement=True,
+    )
+
+
 def _move_batch_to_device(batch: dict[str, Any], device: torch.device) -> dict[str, Any]:
     moved: dict[str, Any] = {}
     for key, value in batch.items():
@@ -513,11 +542,16 @@ def main() -> None:
     encoded_val = _tokenize_dataset(val_dataset, tokenizer, args.max_length)
     encoded_test = _tokenize_dataset(test_dataset, tokenizer, args.max_length)
     collator = DataCollatorWithPadding(tokenizer=tokenizer, pad_to_multiple_of=8 if device.type != "cpu" else None)
+    class_weights = _build_class_weights(train_dataset, len(label_names))
+    sampler = None
+    if args.balance_strategy in {"weighted_sampler", "both"}:
+        sampler = _build_weighted_sampler(train_dataset, class_weights)
 
     train_loader = DataLoader(
         encoded_train,
         batch_size=args.batch_size,
-        shuffle=True,
+        shuffle=sampler is None,
+        sampler=sampler,
         num_workers=args.num_workers,
         collate_fn=collator,
     )
@@ -545,6 +579,9 @@ def main() -> None:
         num_warmup_steps=warmup_steps,
         num_training_steps=total_steps,
     )
+    criterion = None
+    if args.balance_strategy in {"class_weights", "both"}:
+        criterion = torch.nn.CrossEntropyLoss(weight=class_weights.to(device))
 
     morphology_summary = build_morphology_summary(train_dataset, tokenizer, args.morphology_samples)
     history_rows: list[dict[str, Any]] = []
@@ -571,8 +608,16 @@ def main() -> None:
 
         for step, batch in enumerate(train_loader, start=1):
             batch = _move_batch_to_device(batch, device)
-            outputs = model(**batch)
-            loss = outputs.loss / args.gradient_accumulation_steps
+            outputs = model(
+                input_ids=batch["input_ids"],
+                attention_mask=batch["attention_mask"],
+                token_type_ids=batch.get("token_type_ids"),
+            )
+            if criterion is None:
+                loss = torch.nn.functional.cross_entropy(outputs.logits, batch["labels"])
+            else:
+                loss = criterion(outputs.logits, batch["labels"])
+            loss = loss / args.gradient_accumulation_steps
             loss.backward()
             running_loss += float(loss.item()) * args.gradient_accumulation_steps
 
@@ -676,11 +721,13 @@ def main() -> None:
             "learning_rate": args.learning_rate,
             "weight_decay": args.weight_decay,
             "warmup_ratio": args.warmup_ratio,
+            "balance_strategy": args.balance_strategy,
             "device": str(device),
             "best_validation_accuracy": max(float(row["val_accuracy"]) for row in history_rows),
             "best_validation_f1_macro": best_val_f1,
             "latest_test_accuracy": float(history_rows[-1]["test_accuracy"]),
             "latest_test_f1_macro": float(history_rows[-1]["test_f1_macro"]),
+            "class_weights": {label_names[idx]: float(value) for idx, value in enumerate(class_weights.tolist())},
         },
         "morphology": morphology_summary,
         "artifacts": {

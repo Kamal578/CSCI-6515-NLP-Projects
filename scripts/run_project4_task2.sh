@@ -26,11 +26,15 @@ TRAIN_JSON="${TRAIN_JSON:-}"
 VAL_JSON="${VAL_JSON:-}"
 SMOKE="${SMOKE:-0}"
 MEDIUM="${MEDIUM:-0}"
+LARGE="${LARGE:-0}"
 EPOCHS="${EPOCHS:-4}"
 BATCH_SIZE="${BATCH_SIZE:-16}"
 EVAL_BATCH_SIZE="${EVAL_BATCH_SIZE:-8}"
 GRAD_ACCUMULATION_STEPS="${GRAD_ACCUMULATION_STEPS:-1}"
 HIDDEN_SIZE="${HIDDEN_SIZE:-64}"
+LEARNING_RATE="${LEARNING_RATE:-1e-3}"
+GLOVE_LEARNING_RATE="${GLOVE_LEARNING_RATE:-2e-3}"
+BERT_LEARNING_RATE="${BERT_LEARNING_RATE:-5e-4}"
 EMBEDDING_DIM="${EMBEDDING_DIM:-}"
 DEVICE="${DEVICE:-auto}"
 MAX_TRAIN_EXAMPLES="${MAX_TRAIN_EXAMPLES:-}"
@@ -60,6 +64,9 @@ CMD=(
   --batch_size "$BATCH_SIZE"
   --eval_batch_size "$EVAL_BATCH_SIZE"
   --grad_accumulation_steps "$GRAD_ACCUMULATION_STEPS"
+  --learning_rate "$LEARNING_RATE"
+  --glove_learning_rate "$GLOVE_LEARNING_RATE"
+  --bert_learning_rate "$BERT_LEARNING_RATE"
   --hidden_size "$HIDDEN_SIZE"
   --embedding_dim "$EMBEDDING_DIM"
   --device "$DEVICE"
@@ -83,6 +90,9 @@ fi
 if [[ "$MEDIUM" == "1" ]]; then
   CMD+=(--medium)
 fi
+if [[ "$LARGE" == "1" ]]; then
+  CMD+=(--large)
+fi
 
 log "Project 4 Task 2 run started"
 log "Using Python: $PYTHON_BIN"
@@ -92,6 +102,8 @@ if [[ "$SMOKE" == "1" ]]; then
   log "Preset: smoke"
 elif [[ "$MEDIUM" == "1" ]]; then
   log "Preset: medium"
+elif [[ "$LARGE" == "1" ]]; then
+  log "Preset: large"
 else
   log "Preset: full"
 fi
