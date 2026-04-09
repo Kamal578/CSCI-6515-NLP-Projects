@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import random
 import re
+import unicodedata
 import zipfile
 from collections import Counter
 from dataclasses import dataclass
@@ -109,7 +110,10 @@ def word_tokenize_with_offsets(text: str) -> tuple[list[str], list[tuple[int, in
     words: list[str] = []
     offsets: list[tuple[int, int]] = []
     for match in WORD_RE.finditer(text):
-        words.append(match.group(0))
+        token = match.group(0)
+        if all(unicodedata.category(ch)[0] in {"C", "M"} for ch in token):
+            continue
+        words.append(token)
         offsets.append((match.start(), match.end()))
     return words, offsets
 
