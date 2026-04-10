@@ -1,8 +1,0 @@
-\beamer@sectionintoc {1}{Motivation and Scope}{3}{0}{1}
-\beamer@sectionintoc {2}{Task 1: Dataset + Matrices}{5}{0}{2}
-\beamer@sectionintoc {3}{Task 2: Word2Vec}{8}{0}{3}
-\beamer@sectionintoc {4}{Task 3: GloVe}{10}{0}{4}
-\beamer@sectionintoc {5}{Task 4: Comparison}{12}{0}{5}
-\beamer@sectionintoc {6}{Task 5: DL Classification}{13}{0}{6}
-\beamer@sectionintoc {7}{Task 6 + Extra UI}{16}{0}{7}
-\beamer@sectionintoc {8}{Limitations and Conclusion}{18}{0}{8}
