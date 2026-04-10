@@ -52,6 +52,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out_dir", type=str, default="outputs/project4/task2_reading_comprehension")
     parser.add_argument("--glove_path", type=str, default=None, help="Path to glove.6B.100d.txt")
     parser.add_argument("--bert_model_name", type=str, default="bert-base-uncased")
+    parser.add_argument(
+        "--resume_from_checkpoint",
+        type=str,
+        default=None,
+        help="Optional path to a saved Task 2 checkpoint to warm-start/resume training from.",
+    )
     parser.add_argument("--max_train_examples", type=int, default=None)
     parser.add_argument("--max_val_examples", type=int, default=None)
     parser.add_argument("--epochs", type=int, default=4)
@@ -228,6 +234,7 @@ def _build_variant_summary(
             "cache_dir": args.cache_dir,
             "glove_path": args.glove_path,
             "bert_model_name": args.bert_model_name,
+            "resume_from_checkpoint": args.resume_from_checkpoint,
             "epochs": args.epochs,
             "batch_size": args.batch_size,
             "eval_batch_size": args.eval_batch_size,
@@ -278,6 +285,30 @@ def _build_variant_summary(
     if "glove_stats" in loader_metadata:
         summary["glove"] = loader_metadata["glove_stats"]
     return summary
+
+
+def _load_json(path: Path) -> dict[str, object]:
+    if not path.exists():
+        return {}
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def _load_history(path: Path) -> list[dict[str, float | int]]:
+    if not path.exists():
+        return []
+    rows: list[dict[str, float | int]] = []
+    with path.open("r", encoding="utf-8", newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            rows.append(
+                {
+                    "epoch": int(row["epoch"]),
+                    "train_loss": float(row["train_loss"]),
+                    "val_exact_match": float(row["val_exact_match"]),
+                    "val_f1": float(row["val_f1"]),
+                }
+            )
+    return rows
 
 
 def _prepare_tokenized_splits(args: argparse.Namespace) -> tuple[list[TokenizedQaExample], list[TokenizedQaExample]]:
@@ -542,19 +573,74 @@ def _train_variant(
 
     example_lookup = {example.question_id: example for example in val_examples}
     history: list[dict[str, float | int]] = []
-    best_metrics: dict[str, float] = {"exact_match": 0.0, "f1": float("-inf"), "num_examples": 0}
+    best_metrics: dict[str, float] = {
+        "exact_match": 0.0,
+        "f1": float("-inf"),
+        "num_examples": len(val_examples),
+    }
     best_records: list[SquadMetricRecord] = []
     best_epoch = 0
     epochs_without_improvement = 0
+    start_epoch = 1
     variant_out_dir.mkdir(parents=True, exist_ok=True)
     checkpoint_path = variant_out_dir / "model.pt"
     history_path = variant_out_dir / "history.csv"
     predictions_path = variant_out_dir / "predictions.json"
     vocab_path = variant_out_dir / "vocab.json"
+    summary_path = variant_out_dir / "summary.json"
     if vocab is not None:
         write_json(vocab_path, vocab)
 
-    for epoch in range(1, args.epochs + 1):
+    resume_path = Path(args.resume_from_checkpoint).expanduser() if args.resume_from_checkpoint else None
+    if resume_path is not None:
+        if not resume_path.exists():
+            raise FileNotFoundError(f"Resume checkpoint does not exist: {resume_path}")
+        checkpoint_state = torch.load(resume_path, map_location="cpu")
+        model.load_state_dict(checkpoint_state)
+        resume_matches_variant = resume_path.resolve() == checkpoint_path.resolve()
+        if resume_matches_variant:
+            history = _load_history(history_path)
+            existing_summary = _load_json(summary_path)
+            training_summary = existing_summary.get("training", {}) if isinstance(existing_summary, dict) else {}
+            best_epoch = int(training_summary.get("best_epoch", 0) or 0)
+            if best_epoch > 0:
+                best_metrics = {
+                    "exact_match": float(training_summary.get("best_exact_match", 0.0) or 0.0),
+                    "f1": float(training_summary.get("best_f1", float("-inf"))),
+                    "num_examples": len(val_examples),
+                }
+            if history:
+                start_epoch = int(history[-1]["epoch"]) + 1
+        print(
+            f"[{variant}] resumed model weights from {resume_path} "
+            f"starting_epoch={start_epoch} best_epoch={best_epoch}"
+        )
+
+    if start_epoch > args.epochs:
+        print(f"[{variant}] resume checkpoint already reached epoch {args.epochs}; skipping further training")
+        summary = _build_variant_summary(
+            variant=variant,
+            train_examples=train_examples,
+            val_examples=val_examples,
+            train_windows=train_windows,
+            val_windows=val_windows,
+            args=args,
+            device=device,
+            history=history,
+            best_epoch=best_epoch,
+            best_metrics=best_metrics,
+            variant_out_dir=variant_out_dir,
+            checkpoint_path=checkpoint_path,
+            history_path=history_path,
+            predictions_path=predictions_path,
+            vocab=vocab,
+            loader_metadata=loader_metadata,
+            status="completed",
+        )
+        write_json(summary_path, summary)
+        return summary
+
+    for epoch in range(start_epoch, args.epochs + 1):
         print(f"[{variant}] epoch {epoch}/{args.epochs} started")
         model.train()
         running_loss = 0.0
@@ -619,10 +705,10 @@ def _train_variant(
                 f"[{variant}] no improvement at epoch {epoch}: "
                 f"val_em={val_metrics['exact_match']:.4f} val_f1={val_metrics['f1']:.4f} "
                 f"(patience {epochs_without_improvement}/{args.patience})"
-            )
+        )
         _write_csv(history_path, history, ["epoch", "train_loss", "val_exact_match", "val_f1"])
         write_json(
-            variant_out_dir / "summary.json",
+            summary_path,
             _build_variant_summary(
                 variant=variant,
                 train_examples=train_examples,
@@ -668,7 +754,7 @@ def _train_variant(
         loader_metadata=loader_metadata,
         status="completed",
     )
-    write_json(variant_out_dir / "summary.json", summary)
+    write_json(summary_path, summary)
     print(
         f"[{variant}] best_epoch={best_epoch} "
         f"val_em={best_metrics['exact_match']:.4f} val_f1={best_metrics['f1']:.4f} "
@@ -744,6 +830,8 @@ def main() -> None:
         raise ValueError("--grad_accumulation_steps must be > 0")
     if args.bert_unfreeze_last_n < -1:
         raise ValueError("--bert_unfreeze_last_n must be -1, 0, or a positive integer")
+    if args.resume_from_checkpoint and args.variant == "compare":
+        raise ValueError("--resume_from_checkpoint requires --variant glove or --variant bert, not compare")
     _set_seed(args.seed)
     device = _resolve_device(args.device)
 

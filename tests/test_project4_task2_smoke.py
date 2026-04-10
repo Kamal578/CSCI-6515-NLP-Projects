@@ -174,7 +174,6 @@ def test_project4_task2_cli_smoke_runs_with_local_resources(tmp_path: Path, vari
         "8",
         "--device",
         "cpu",
-        "--smoke",
     ]
     if bert_dir is not None:
         cmd.extend(["--bert_model_name", str(bert_dir)])
@@ -186,3 +185,96 @@ def test_project4_task2_cli_smoke_runs_with_local_resources(tmp_path: Path, vari
     assert (out_dir / variant / "predictions.json").exists()
     assert (out_dir / "comparison.csv").exists()
     assert (out_dir / "report_notes.md").exists()
+
+
+def test_project4_task2_cli_can_resume_from_checkpoint(tmp_path: Path):
+    bert_dir = _make_tiny_bert_dir(tmp_path)
+
+    train_examples = [
+        {
+            "id": "train-1",
+            "context": "alpha beta gamma delta",
+            "question": "what comes after alpha?",
+            "answer_text": "beta",
+            "answer_start": 6,
+        },
+        {
+            "id": "train-2",
+            "context": "beta gamma delta alpha",
+            "question": "which token is first?",
+            "answer_text": "beta",
+            "answer_start": 0,
+        },
+    ]
+    val_examples = [
+        {
+            "id": "val-1",
+            "context": "alpha beta gamma delta",
+            "question": "what comes after alpha?",
+            "answer_text": "beta",
+            "answer_start": 6,
+        }
+    ]
+    train_json = tmp_path / "train.json"
+    val_json = tmp_path / "val.json"
+    _write_squad_json(train_json, train_examples)
+    _write_squad_json(val_json, val_examples)
+
+    glove_path = tmp_path / "glove.6B.100d.txt"
+    _write_glove_file(glove_path)
+
+    out_dir = tmp_path / "outputs"
+    cache_dir = tmp_path / "cache"
+    base_cmd = [
+        sys.executable,
+        "-m",
+        "src.project4_task2_reading_comprehension",
+        "--variant",
+        "bert",
+        "--train_json",
+        str(train_json),
+        "--val_json",
+        str(val_json),
+        "--cache_dir",
+        str(cache_dir),
+        "--out_dir",
+        str(out_dir),
+        "--glove_path",
+        str(glove_path),
+        "--bert_model_name",
+        str(bert_dir),
+        "--batch_size",
+        "2",
+        "--eval_batch_size",
+        "2",
+        "--hidden_size",
+        "8",
+        "--context_window_words",
+        "8",
+        "--doc_stride_words",
+        "4",
+        "--max_question_words",
+        "8",
+        "--device",
+        "cpu",
+    ]
+
+    subprocess.run(base_cmd + ["--epochs", "1"], cwd=Path(__file__).resolve().parents[1], check=True)
+
+    checkpoint_path = out_dir / "bert" / "model.pt"
+    assert checkpoint_path.exists()
+
+    subprocess.run(
+        base_cmd
+        + [
+            "--epochs",
+            "2",
+            "--resume_from_checkpoint",
+            str(checkpoint_path),
+        ],
+        cwd=Path(__file__).resolve().parents[1],
+        check=True,
+    )
+
+    history_lines = (out_dir / "bert" / "history.csv").read_text(encoding="utf-8").strip().splitlines()
+    assert len(history_lines) == 3
