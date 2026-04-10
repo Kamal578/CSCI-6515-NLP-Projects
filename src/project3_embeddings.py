@@ -62,8 +62,23 @@ def load_text_vectors(path: str | Path, max_words: int | None = None) -> Embeddi
 
     words: list[str] = []
     vectors: list[np.ndarray] = []
-    dim: int | None = None
+    for word, vector in iter_text_vectors(p, max_words=max_words):
+        words.append(word)
+        vectors.append(vector)
 
+    if not words:
+        raise ValueError(f"No vectors could be read from: {p}")
+    mat = np.vstack(vectors)
+    return EmbeddingSpace(words=words, vectors=mat)
+
+
+def iter_text_vectors(path: str | Path, max_words: int | None = None):
+    p = Path(path)
+    if not p.exists():
+        raise FileNotFoundError(f"Embedding file not found: {p}")
+
+    dim: int | None = None
+    yielded = 0
     with p.open("r", encoding="utf-8", errors="ignore") as f:
         first = f.readline().strip().split()
         if len(first) == 2 and first[0].isdigit() and first[1].isdigit():
@@ -82,18 +97,13 @@ def load_text_vectors(path: str | Path, max_words: int | None = None) -> Embeddi
             if len(vals) != dim:
                 continue
             try:
-                vec = np.asarray([float(x) for x in vals], dtype=np.float32)
+                vector = np.asarray([float(x) for x in vals], dtype=np.float32)
             except ValueError:
                 continue
-            words.append(word)
-            vectors.append(vec)
-            if max_words is not None and len(words) >= max_words:
+            yield word, vector
+            yielded += 1
+            if max_words is not None and yielded >= max_words:
                 break
-
-    if not words:
-        raise ValueError(f"No vectors could be read from: {p}")
-    mat = np.vstack(vectors)
-    return EmbeddingSpace(words=words, vectors=mat)
 
 
 def evaluate_targets(space: EmbeddingSpace, targets: list[str], top_k: int = 10) -> list[dict]:

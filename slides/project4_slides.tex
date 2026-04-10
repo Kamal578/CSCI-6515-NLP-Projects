@@ -1,0 +1,329 @@
+\documentclass{beamer}
+\usetheme{Madrid}
+\usecolortheme{default}
+\setbeamertemplate{footline}[frame number]
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{mathtools}
+\usepackage{array}
+
+\title{Spring 2026 Natural Language Processing (CSCI-6515)}
+\subtitle{Project 4: Azerbaijani Sentiment Analysis with BERT and QA with BiDAF + BERT}
+\author{
+\textbf{Kamal Ahmadov} \\ \small kahmadov24700@ada.edu.az; kamal.ahmadov@gwu.edu \\ \and
+\textbf{Rufat Guliyev} \\ \small rguliyev24988@ada.edu.az; rufat.guliyev@gwu.edu
+}
+\institute{ADA University \& George Washington University}
+\date{April 10, 2026}
+
+\newcommand{\EM}{\operatorname{EM}}
+\newcommand{\Fone}{\operatorname{F1}}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}{Outline}
+\tableofcontents
+\end{frame}
+
+\section{Motivation}
+
+\begin{frame}{Motivation and Scope}
+\begin{itemize}
+  \item Azerbaijani is under-resourced and morphologically rich, so word-level NLP baselines are brittle.
+  \item Project 4 combines two complementary tasks:
+  \begin{itemize}
+    \item \textbf{Task 1:} Azerbaijani sentiment classification with fine-tuned BERT
+    \item \textbf{Task 2:} extractive QA with BiDAF, comparing GloVe vs.\ BERT
+  \end{itemize}
+  \item Final deliverables:
+  \begin{itemize}
+    \item trained models and saved artifacts
+    \item Streamlit UI for live inference
+    \item reproducible report and slides
+  \end{itemize}
+\end{itemize}
+\end{frame}
+
+\section{Task 1}
+
+\begin{frame}{Task 1: Dataset and Modeling Choices}
+\small
+\textbf{Dataset}
+\begin{itemize}
+  \item \texttt{hajili/azerbaijani\_review\_sentiment\_classification}
+  \item text column: \texttt{content}, label source: \texttt{score}
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Final label setup}
+\begin{itemize}
+  \item \texttt{sentiment3}: negative / neutral / positive
+  \item train / val / test = 30,000 / 5,000 / 10,000
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Model}
+\begin{itemize}
+  \item \texttt{google-bert/bert-base-multilingual-cased}
+  \item class-weighted loss for imbalance
+  \item MPS training on Apple Silicon
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Why this setup worked}
+\begin{itemize}
+  \item subword tokenization preserves Azerbaijani suffix information
+  \item 3-way sentiment is more learnable than raw 5-star prediction
+  \item class weighting reduces majority-class collapse
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Task 1: Preprocessing and Azerbaijani Adaptation}
+\small
+\textbf{Input pipeline}
+\begin{itemize}
+  \item Unicode NFC normalization
+  \item whitespace cleanup and noisy punctuation compression
+  \item Azerbaijani diacritics preserved
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Why we avoided stemming}
+\begin{itemize}
+  \item Azerbaijani is agglutinative
+  \item suffix chains often carry sentiment-bearing meaning
+  \item aggressive suffix stripping can destroy useful signal
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Observed tokenizer behavior}
+\begin{itemize}
+  \item average wordpieces per word: 2.25
+  \item multi-piece word rate: about 70.3\%
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Prediction rule}
+\[
+\hat{y}=\arg\max \operatorname{softmax}(W h_{\texttt{[CLS]}} + b)
+\]
+\end{frame}
+
+\begin{frame}{Task 1: Final Results}
+\small
+\begin{table}
+\centering
+\begin{tabular}{lr}
+\toprule
+Metric & Value \\
+\midrule
+Best validation macro-F1 & 0.5980 \\
+Validation accuracy at best checkpoint & 0.9006 \\
+Test accuracy & 0.8968 \\
+Test macro-F1 & 0.5863 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\vspace{0.3em}
+\textbf{Classwise test F1}
+\begin{itemize}
+  \item negative: 0.6861
+  \item neutral: 0.1260
+  \item positive: 0.9470
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Main takeaway}
+\begin{itemize}
+  \item Task 1 is the strongest final result in the project
+  \item the neutral class remains the main weakness
+\end{itemize}
+\end{frame}
+
+\section{Task 2}
+
+\begin{frame}{Task 2: QA Architecture}
+\small
+\textbf{Goal}
+\begin{itemize}
+  \item predict the answer span inside a context passage
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Shared BiDAF backbone}
+\begin{itemize}
+  \item highway network
+  \item contextual BiLSTM encoder
+  \item bidirectional attention flow
+  \item modeling layers
+  \item start/end span heads
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Two embedding variants}
+\begin{itemize}
+  \item BiDAF + GloVe
+  \item BiDAF + BERT
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Span prediction}
+\[
+(\hat{s},\hat{e})=\arg\max_{i\leq j} p_{\text{start}}(i)\,p_{\text{end}}(j)
+\]
+\end{frame}
+
+\begin{frame}{Task 2: Experimental Setup}
+\small
+\textbf{Dataset}
+\begin{itemize}
+  \item SQuAD 1.1
+  \item overlapping context windows for long passages
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{GloVe baseline}
+\begin{itemize}
+  \item 4,096 train / 1,024 validation examples
+  \item hidden size 64
+  \item best checkpoint at epoch 3
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{BERT-enhanced BiDAF}
+\begin{itemize}
+  \item 12,000 train / 2,048 validation examples
+  \item last 4 BERT layers unfrozen
+  \item gradient checkpointing enabled
+  \item separate learning rates:
+  \begin{itemize}
+    \item BERT: \(3 \times 10^{-5}\)
+    \item BiDAF head: \(8 \times 10^{-4}\)
+  \end{itemize}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Task 2: Results}
+\small
+\begin{table}
+\centering
+\begin{tabular}{lrrrr}
+\toprule
+Variant & Train & Val & EM & F1 \\
+\midrule
+BiDAF + GloVe & 4,096 & 1,024 & 0.0693 & 0.1269 \\
+BiDAF + fine-tuned BERT & 12,000 & 2,048 & 0.3164 & 0.4068 \\
+\bottomrule
+\end{tabular}
+\end{table}
+
+\vspace{0.3em}
+\textbf{Improvement from BERT}
+\begin{itemize}
+  \item $\Delta \EM = +0.2471$
+  \item $\Delta \Fone = +0.2799$
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Interpretation}
+\begin{itemize}
+  \item contextual embeddings clearly outperform the static baseline
+  \item partial BERT fine-tuning matters
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Task 2: Engineering Reality on M2 Pro}
+\small
+\textbf{What happened in the strongest QA run}
+\begin{itemize}
+  \item best BERT checkpoint was reached at epoch 2
+  \item epoch 3 crashed with MPS out-of-memory
+  \item saved checkpoint and history remained valid
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Why this matters}
+\begin{itemize}
+  \item the model improvement is real
+  \item Apple Silicon memory is the main systems bottleneck
+  \item we added resume-from-checkpoint support after the crash
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Optimization techniques used}
+\begin{itemize}
+  \item small physical batches + gradient accumulation
+  \item partial BERT unfreezing instead of full fine-tuning
+  \item gradient checkpointing
+  \item MPS fallback and incremental checkpoint writing
+\end{itemize}
+\end{frame}
+
+\section{UI and Summary}
+
+\begin{frame}{Interactive UI}
+\small
+\textbf{Implemented interface}
+\begin{itemize}
+  \item \texttt{src/project4\_dashboard.py}
+  \item launch with \texttt{bash scripts/run\_project4\_ui.sh}
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{What the UI supports}
+\begin{itemize}
+  \item Azerbaijani sentiment prediction from free-form text
+  \item QA answer extraction from context + question
+  \item metric and artifact inspection
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Presentation value}
+\begin{itemize}
+  \item shows both tasks live
+  \item demonstrates saved checkpoints, not mock outputs
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Conclusion}
+\small
+\textbf{Task 1}
+\begin{itemize}
+  \item fine-tuned multilingual BERT produced a strong Azerbaijani sentiment model
+  \item final result: 0.8968 accuracy, 0.5863 macro-F1
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Task 2}
+\begin{itemize}
+  \item BiDAF + BERT strongly beat the GloVe baseline
+  \item best saved QA checkpoint: EM 0.3164, F1 0.4068
+\end{itemize}
+
+\vspace{0.3em}
+\textbf{Overall}
+\begin{itemize}
+  \item the project delivered trained models, report, UI, and reproducible artifacts
+  \item the main limitation was Apple Silicon memory during long QA fine-tuning runs
+  \item the main research takeaway is clear: contextual BERT representations helped both tasks
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Questions}
+\centering
+\Large Thank you
+
+\vspace{0.8em}
+\normalsize Questions and discussion
+\end{frame}
+
+\end{document}

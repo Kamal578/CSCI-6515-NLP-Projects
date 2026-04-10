@@ -1,0 +1,322 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{amsmath}
+\setlist{nosep}
+\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue}
+
+% -----------------------------
+% Key experimental numbers
+% -----------------------------
+\newcommand{\taskOneTrain}{30{,}000}
+\newcommand{\taskOneVal}{5{,}000}
+\newcommand{\taskOneTest}{10{,}000}
+\newcommand{\taskOneValMacro}{0.5980}
+\newcommand{\taskOneValAcc}{0.9006}
+\newcommand{\taskOneMaxValAcc}{0.9032}
+\newcommand{\taskOneTestAcc}{0.8968}
+\newcommand{\taskOneTestMacro}{0.5863}
+\newcommand{\taskOneNegFOne}{0.6861}
+\newcommand{\taskOneNeuFOne}{0.1260}
+\newcommand{\taskOnePosFOne}{0.9470}
+
+\newcommand{\gloveTrain}{4{,}096}
+\newcommand{\gloveVal}{1{,}024}
+\newcommand{\gloveBestEpoch}{3}
+\newcommand{\gloveEM}{0.0693}
+\newcommand{\gloveFOne}{0.1269}
+\newcommand{\gloveCoverage}{0.2530}
+
+\newcommand{\bertTrain}{12{,}000}
+\newcommand{\bertVal}{2{,}048}
+\newcommand{\bertBestEpoch}{2}
+\newcommand{\bertEM}{0.3164}
+\newcommand{\bertFOne}{0.4068}
+\newcommand{\bertDeltaEM}{+0.2471}
+\newcommand{\bertDeltaFOne}{+0.2799}
+
+\title{Project 4: Azerbaijani NLP Systems with BERT and BiDAF}
+\author{\textbf{Kamal Ahmadov} \and \textbf{Rufat Guliyev}}
+\date{Spring 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This project implements two neural NLP systems and an interactive interface. Task 1 fine-tunes a BERT sentiment classifier for Azerbaijani app reviews using the Hugging Face dataset \texttt{hajili/azerbaijani\_review\_sentiment\_classification}. Task 2 implements extractive question answering with a PyTorch BiDAF architecture and compares a GloVe baseline against a BERT-enhanced variant with partial BERT fine-tuning. The final deliverable includes a Streamlit interface that reloads the saved local checkpoints and performs live inference for both tasks. The system is optimized for macOS on Apple Silicon with MPS acceleration, gradient accumulation, checkpointing, and memory-aware batch sizing.
+\end{abstract}
+
+\section{Motivation}
+Azerbaijani is an under-resourced language in mainstream NLP, and its agglutinative structure creates practical modeling challenges. Sentiment-bearing meanings often depend on suffix chains, informal spelling, and noisy user-generated reviews. This makes purely word-level pipelines brittle and motivates subword-aware transformer models for classification.
+
+For reading comprehension, the main motivation is different: the project studies whether a classical span extractor such as BiDAF can be strengthened by replacing static embeddings with contextual BERT representations. Because high-quality Azerbaijani QA resources are limited, the QA experiments use SQuAD as a controlled benchmark while keeping Azerbaijani sentiment analysis as the language-specific core task.
+
+\section{Project Structure and Reproducibility}
+The project was implemented through dedicated Project 4 modules and runner scripts:
+\begin{itemize}
+    \item \texttt{src/project4\_task1\_sentiment.py}
+    \item \texttt{src/project4\_task2\_reading\_comprehension.py}
+    \item \texttt{src/project4\_task2\_qa\_model.py}
+    \item \texttt{src/project4\_dashboard.py}
+    \item \texttt{src/project4\_inference.py}
+\end{itemize}
+
+Main commands:
+\begin{verbatim}
+bash scripts/run_project4_task1.sh
+bash scripts/run_project4_task2.sh
+bash scripts/run_project4_ui.sh
+\end{verbatim}
+
+Main output directories:
+\begin{itemize}
+    \item \texttt{outputs/project4/task1\_sentiment}
+    \item \texttt{outputs/project4/task2\_reading\_comprehension}
+\end{itemize}
+
+\section{Task 1: Azerbaijani Sentiment Analysis}
+\subsection{Dataset and Labeling}
+Task 1 uses the Hugging Face dataset \texttt{hajili/azerbaijani\_review\_sentiment\_classification}. Each example contains:
+\begin{itemize}
+    \item \texttt{content}: Azerbaijani review text
+    \item \texttt{score}: star rating
+    \item \texttt{upvotes}: auxiliary metadata
+\end{itemize}
+
+The implementation supports three label modes:
+\begin{itemize}
+    \item \texttt{score5}: original 1--5 scores
+    \item \texttt{sentiment3}: negative / neutral / positive
+    \item \texttt{binary}: negative vs.\ positive after dropping score 3
+\end{itemize}
+
+The best run for this report used \texttt{sentiment3}. The training subset and class distribution were:
+\begin{itemize}
+    \item Train: \taskOneTrain\ examples
+    \item Validation: \taskOneVal\ examples
+    \item Test: \taskOneTest\ examples
+    \item Train labels: 3,785 negative; 646 neutral; 25,569 positive
+\end{itemize}
+
+This distribution is strongly imbalanced, so macro-F1 is more informative than raw accuracy.
+
+\subsection{Model, Preprocessing, and Azerbaijani Adaptation}
+The final Task 1 model is \texttt{google-bert/bert-base-multilingual-cased}. We kept the cased tokenizer because Azerbaijani diacritics and orthographic variation carry lexical information. The model input is a single UTF-8 review string. The tensor inputs are standard BERT classification tensors:
+\texttt{input\_ids}, \texttt{attention\_mask}, and \texttt{token\_type\_ids} when provided by the tokenizer. The output is a class-logit vector, and inference uses argmax over logits.
+
+Text preprocessing was intentionally conservative:
+\begin{itemize}
+    \item Unicode NFC normalization
+    \item whitespace cleanup
+    \item punctuation and repeated-character compression for noisy reviews
+    \item preservation of Azerbaijani diacritics
+\end{itemize}
+
+No stemming or suffix stripping was applied. This is important for Azerbaijani because aggressive normalization can destroy sentiment-bearing morphology. Instead, the system relies on BERT subword segmentation. The saved morphology diagnostics show average tokenizer fragmentation of 2.25 wordpieces per word and a multi-piece rate of about 70.3\%, which is consistent with an agglutinative language.
+
+\subsection{Training Setup}
+The best Task 1 run used the following settings:
+\begin{itemize}
+    \item model: \texttt{google-bert/bert-base-multilingual-cased}
+    \item device: MPS on Apple Silicon
+    \item batch size: 8
+    \item evaluation batch size: 16
+    \item gradient accumulation: 2
+    \item epochs: 4
+    \item learning rate: \(2 \times 10^{-5}\)
+    \item weight decay: 0.01
+    \item warmup ratio: 0.06
+    \item balancing: class-weighted loss
+\end{itemize}
+
+The switch from 5-way score prediction to 3-way sentiment prediction, combined with class weighting, was the key experimental improvement. Earlier 5-class runs collapsed to the majority label and produced very poor macro-F1.
+
+\subsection{Task 1 Results}
+The checkpoint was selected by validation macro-F1, not by validation accuracy. The best checkpoint came from epoch 4.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lr}
+\toprule
+\textbf{Metric} & \textbf{Value} \\
+\midrule
+Best validation macro-F1 & \taskOneValMacro \\
+Validation accuracy at best-F1 checkpoint & \taskOneValAcc \\
+Maximum validation accuracy during run & \taskOneMaxValAcc \\
+Test accuracy & \taskOneTestAcc \\
+Test macro-F1 & \taskOneTestMacro \\
+\bottomrule
+\end{tabular}
+\caption{Task 1 headline results from \texttt{outputs/project4/task1\_sentiment/summary.json}.}
+\label{tab:task1-headline}
+\end{table}
+
+Classwise test-set F1 from \texttt{classification\_report.json}:
+\begin{itemize}
+    \item negative: \taskOneNegFOne
+    \item neutral: \taskOneNeuFOne
+    \item positive: \taskOnePosFOne
+\end{itemize}
+
+The positive class is very strong, the negative class is reasonably learned, and the neutral class remains difficult. The confusion matrix shows that neutral reviews are frequently pulled toward the adjacent positive or negative classes. This is expected in review data where many ``neutral'' instances are short, ambiguous, or weakly opinionated.
+
+\subsection{Task 1 Discussion}
+Task 1 is the strongest part of the project. The final model is clearly usable for demo and report purposes. The most important lesson is that dataset formulation mattered as much as model choice. Moving from \texttt{score5} to \texttt{sentiment3} and adding class-weighted loss improved macro-F1 substantially without changing the underlying transformer architecture.
+
+\section{Task 2: Reading Comprehension with BiDAF and BERT}
+\subsection{Architecture}
+Task 2 implements a BiDAF-style extractive QA model in PyTorch with:
+\begin{itemize}
+    \item a two-layer highway network
+    \item contextual BiLSTM encoding
+    \item bidirectional attention flow between context and question
+    \item modeling BiLSTMs
+    \item separate start and end span predictors
+\end{itemize}
+
+Two embedding settings were evaluated:
+\begin{itemize}
+    \item \textbf{BiDAF + GloVe}: trainable word embeddings loaded from Project 3 vectors
+    \item \textbf{BiDAF + BERT}: word-level pooled BERT representations projected into the BiDAF stack
+\end{itemize}
+
+The BERT path was initially implemented with frozen contextual embeddings, then upgraded to support partial fine-tuning. The final QA experiments in this report use partial BERT fine-tuning with the last 4 encoder layers unfrozen plus gradient checkpointing.
+
+\subsection{Dataset and Windowing}
+The QA dataset is SQuAD 1.1. This is a limitation of the project but also a practical necessity: an Azerbaijani QA resource of similar scale and maturity was not available in the pipeline. Examples are tokenized at the word level, then long contexts are split into overlapping windows. During training, windows must contain the gold span; during evaluation, all valid windows are scored and the best span is selected globally.
+
+\subsection{Training Configurations}
+\textbf{GloVe baseline}
+\begin{itemize}
+    \item train / val examples: \gloveTrain\ / \gloveVal
+    \item hidden size: 64
+    \item batch size: 4
+    \item gradient accumulation: 2
+    \item learning rate: 0.002 for embedding+BiDAF parameters
+\end{itemize}
+
+\textbf{BERT-enhanced BiDAF}
+\begin{itemize}
+    \item train / val examples: \bertTrain\ / \bertVal
+    \item hidden size: 96
+    \item batch size: 4
+    \item gradient accumulation: 4
+    \item BiDAF/head learning rate: \(8 \times 10^{-4}\)
+    \item BERT learning rate: \(3 \times 10^{-5}\)
+    \item fine-tuning: last 4 BERT layers unfrozen
+    \item gradient checkpointing: enabled
+\end{itemize}
+
+\subsection{Task 2 Results}
+The GloVe baseline completed normally. Its best checkpoint came at epoch \gloveBestEpoch.
+
+\begin{table}[H]
+\centering
+\begin{tabular}{lrrrr}
+\toprule
+\textbf{Variant} & \textbf{Train} & \textbf{Val} & \textbf{EM} & \textbf{F1} \\
+\midrule
+BiDAF + GloVe & \gloveTrain & \gloveVal & \gloveEM & \gloveFOne \\
+BiDAF + fine-tuned BERT & \bertTrain & \bertVal & \bertEM & \bertFOne \\
+\bottomrule
+\end{tabular}
+\caption{Task 2 best validation results from per-variant summaries and histories.}
+\label{tab:task2-results}
+\end{table}
+
+The BERT-enhanced model improved over the GloVe baseline by:
+\begin{itemize}
+    \item EM: \bertDeltaEM
+    \item F1: \bertDeltaFOne
+\end{itemize}
+
+This is the most important QA result in the project: contextual representations plus partial fine-tuning are dramatically stronger than the static GloVe baseline in this setup.
+
+\subsection{GloVe Baseline Interpretation}
+The GloVe run is useful as a baseline, but its ceiling is limited. The saved statistics show vocabulary coverage of only \gloveCoverage\ over the Task 2 vocabulary. This low coverage means many context or question words rely on random initialization or poor matching, which directly hurts span prediction quality.
+
+\subsection{BERT Fine-Tuning Outcome and Limitation}
+The long BERT fine-tuning run was the most ambitious experiment in the project. It reached a strong checkpoint at epoch \bertBestEpoch\ with EM \bertEM\ and F1 \bertFOne, but the run did not finish cleanly. During epoch 3 on MPS, the Apple Silicon backend ran out of memory and terminated the process. As a result:
+\begin{itemize}
+    \item the best checkpoint from epoch 2 was saved correctly
+    \item the final \texttt{bert/summary.json} remained marked as running
+    \item the old \texttt{comparison.csv} was stale and not used as the source of truth for this report
+\end{itemize}
+
+This is a real systems result, not just an inconvenience. It shows that partial transformer fine-tuning inside a BiDAF pipeline is feasible on an M2 Pro, but only up to a point. Aggressive training settings can exceed the practical MPS memory envelope even when batch sizes appear small.
+
+\section{Task 3: Interactive UI}
+The project includes a Streamlit interface that reloads the locally saved checkpoints and performs live inference. The UI supports:
+\begin{itemize}
+    \item Azerbaijani sentiment prediction from free-form review text
+    \item extractive QA from user-supplied context and question
+    \item artifact browsing and metric inspection
+\end{itemize}
+
+The UI is launched with:
+\begin{verbatim}
+bash scripts/run_project4_ui.sh
+\end{verbatim}
+
+The sentiment tab loads the fine-tuned BERT classifier and displays predicted labels with probabilities. The QA tab loads the saved BiDAF checkpoint and applies the same windowing and span-selection logic used during evaluation.
+
+\section{Optimization for MacBook Pro M2 Pro}
+The project was explicitly engineered for a MacBook Pro M2 Pro with 16~GB RAM. The most important optimization techniques were:
+\begin{itemize}
+    \item MPS device selection with CPU fallback
+    \item small physical batch sizes with gradient accumulation
+    \item dynamic padding and capped sequence lengths
+    \item class-weighted loss for imbalanced sentiment data
+    \item differential learning rates for QA fine-tuning
+    \item partial BERT unfreezing instead of full fine-tuning
+    \item gradient checkpointing for the QA BERT encoder
+    \item incremental checkpoint and CSV/JSON artifact writing
+    \item resume-from-checkpoint support added after the overnight QA crash
+\end{itemize}
+
+These were not cosmetic optimizations. They were necessary to make the training loops viable on Apple Silicon.
+
+\section{Experiments, Error Analysis, and Limitations}
+\subsection{What Worked}
+\begin{itemize}
+    \item Task 1 achieved strong accuracy and acceptable macro-F1 with a practical configuration.
+    \item The Azerbaijani-specific preprocessing strategy of preserving morphology while using subword tokenization was justified by the results.
+    \item For Task 2, the BERT-enhanced BiDAF model clearly outperformed the static GloVe baseline.
+\end{itemize}
+
+\subsection{Main Failure Modes}
+\begin{itemize}
+    \item \textbf{Task 1 neutral class:} Neutral reviews remain the weakest class because the dataset is highly imbalanced and neutral reviews are often semantically close to weak positive or weak negative reviews.
+    \item \textbf{Task 2 long-run stability:} MPS memory pressure caused an epoch-3 crash during the strongest BERT fine-tuning run.
+    \item \textbf{Task 2 data mismatch:} QA was trained and evaluated on English SQuAD, not Azerbaijani QA data.
+    \item \textbf{Task 2 baseline coverage:} GloVe coverage was too low for a competitive span extractor.
+\end{itemize}
+
+\subsection{Methodological Limitations}
+The project has three important limitations:
+\begin{enumerate}
+    \item The QA dataset is not Azerbaijani, so Task 2 is best understood as an architecture study rather than a truly Azerbaijani QA system.
+    \item The best QA checkpoint comes from an interrupted run, so the result is valid but not as cleanly finalized as Task 1.
+    \item The current BiDAF implementation does not include a dedicated character encoder, which could be useful for morphologically rich languages and rare-answer spans.
+\end{enumerate}
+
+\subsection{Future Work}
+If more time or compute were available, the next improvements would be:
+\begin{itemize}
+    \item collect or adapt an Azerbaijani QA benchmark
+    \item add a character-level encoder to BiDAF
+    \item complete a longer resumed BERT fine-tuning run under safer MPS settings
+    \item improve neutral-class handling in Task 1 through rebalancing or targeted augmentation
+    \item compare multilingual BERT with an Azerbaijani-specialized encoder under the same sentiment setup
+\end{itemize}
+
+\section{Conclusion}
+Project 4 produced a working Azerbaijani sentiment classifier, a substantially improved BiDAF+BERT QA system, and a live interactive interface. The strongest fully completed result is Task 1, which reached 0.8968 test accuracy and 0.5863 macro-F1 on Azerbaijani review sentiment. For Task 2, the most important experimental finding is that partial BERT fine-tuning improved validation F1 from 0.1269 to 0.4068 over the GloVe baseline, despite hardware limits interrupting the longest run. Overall, the project demonstrates both the practical promise and the systems constraints of building modern NLP pipelines for under-resourced settings on consumer Apple Silicon hardware.
+
+\end{document}
