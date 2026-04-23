@@ -1,0 +1,370 @@
+\documentclass{beamer}
+\usetheme{Madrid}
+\usecolortheme{default}
+\setbeamertemplate{footline}[frame number]
+
+\usepackage[T1]{fontenc}
+\usepackage[utf8]{inputenc}
+\usepackage{amsmath,amssymb}
+\usepackage{booktabs}
+\usepackage{graphicx}
+\usepackage{mathtools}
+\usepackage{array}
+
+\title{Spring 2026 Natural Language Processing (CSCI-6515)}
+\subtitle{Project 5: Retrieval-Augmented Generation for ESG Question Answering}
+\author{
+\textbf{Kamal Ahmadov} \\ \small kahmadov24700@ada.edu.az; kamal.ahmadov@gwu.edu \\ \and
+\textbf{Rufat Guliyev} \\ \small rguliyev24988@ada.edu.az; rufat.guliyev@gwu.edu
+}
+\institute{ADA University \& George Washington University}
+\date{April 23, 2026}
+
+\begin{document}
+
+\begin{frame}
+  \titlepage
+\end{frame}
+
+\begin{frame}{Outline}
+\tableofcontents
+\end{frame}
+
+\section{Motivation}
+
+\begin{frame}{Motivation and Objective}
+\begin{itemize}
+  \item LLM-only answers are fluent but often not grounded in project data.
+  \item ESG analysis needs traceability: answers should cite real source reports.
+  \item Goal: build a full RAG system from data prep to UI.
+  \item Required flow:
+  \[
+  \text{Query} \rightarrow \text{Retrieval} \rightarrow \text{Context} \rightarrow \text{Answer}
+  \]
+\end{itemize}
+\end{frame}
+
+\section{Task 1: Data Preparation}
+
+\begin{frame}{Domain and Dataset}
+\small
+\textbf{Domain}
+\begin{itemize}
+  \item ESG sustainability reports for S\&P 500 companies
+\end{itemize}
+
+\textbf{Dataset source}
+\begin{itemize}
+  \item Kaggle: ESG Sustainability Reports of S\&P 500 Companies
+\end{itemize}
+
+\textbf{Local snapshot}
+\begin{itemize}
+  \item 866 documents
+  \item 10,361,942 words
+  \item requirement exceeded (\(>50\) docs and \(>10,000\) words)
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Preprocessing and Chunking}
+\small
+\textbf{Pipeline}
+\begin{itemize}
+  \item \texttt{01\_data\_prep.py}: CSV rows \(\rightarrow\) per-report TXT files
+  \item \texttt{02\_build\_index.py}: tokenization, strict chunking, indexing
+\end{itemize}
+
+\textbf{Chunk policy}
+\begin{itemize}
+  \item tokenization: whitespace regex \texttt{\textbackslash S+}
+  \item strict token bounds: 201 to 499
+  \item target chunk size: 420
+  \item adaptive chunk count:
+  \[
+  k=\min\!\Big(\max(\text{round}(n/420),\lceil n/499\rceil),\lfloor n/201\rfloor\Big)
+  \]
+  \item stored chunks: 24,687
+  \item observed min/max token count: 215 / 488
+\end{itemize}
+\end{frame}
+
+\section{Task 2: RAG Implementation}
+
+\begin{frame}{System Architecture}
+\small
+\textbf{Knowledge Base}
+\begin{itemize}
+  \item ChromaDB persistent collection: \texttt{sp500\_esg\_reports}
+\end{itemize}
+
+\textbf{Retriever}
+\begin{itemize}
+  \item LlamaIndex similarity search, default \texttt{top-k = 3}
+\end{itemize}
+
+\textbf{Generator}
+\begin{itemize}
+  \item Ollama \texttt{llama3.1} with retrieval-aware prompts
+  \item shared prompt module: \texttt{src/rag\_prompts.py}
+\end{itemize}
+
+\textbf{Embeddings}
+\begin{itemize}
+  \item Ollama \texttt{nomic-embed-text}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{System Prompt Contract}
+\small
+\textbf{Prompt source}
+\begin{itemize}
+  \item \texttt{ESG\_SYSTEM\_PROMPT} in \texttt{src/rag\_prompts.py}
+  \item applied in both pipeline and UI
+\end{itemize}
+
+\textbf{Core rules}
+\begin{itemize}
+  \item use retrieved chunks as the only authoritative evidence
+  \item do not fabricate facts/citations
+  \item separate evidence from inference
+  \item state uncertainty when evidence is weak
+\end{itemize}
+
+\textbf{Required output format}
+\begin{itemize}
+  \item \texttt{Answer}
+  \item \texttt{Evidence}
+  \item optional \texttt{Inference}
+  \item optional \texttt{Gaps/Uncertainty}
+  \item citation format: \texttt{[source\_file | ticker | year]}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Embeddings: Ollama \texttt{nomic-embed-text}}
+\small
+\textbf{Embedding model}
+\begin{itemize}
+  \item Ollama embedding model: \texttt{nomic-embed-text}
+  \item encoder map: \(f_{\theta}: \mathcal{T} \rightarrow \mathbb{R}^{d}\), \(e_i=f_{\theta}(c_i)\)
+  \item optional normalization: \(\hat{e}_i = e_i / \|e_i\|_2\)
+\end{itemize}
+
+\textbf{Where used}
+\begin{itemize}
+  \item indexing: \texttt{src/02\_build\_index.py}
+  \item retrieval pipeline: \texttt{src/03\_rag\_pipeline.py}
+  \item UI runtime: \texttt{src/04\_app.py}
+\end{itemize}
+
+\textbf{Stored with each vector}
+\begin{itemize}
+  \item chunk text embedding + metadata
+  \item \texttt{source\_file}, \texttt{ticker}, \texttt{year}, \texttt{chunk\_id}, \texttt{token\_count}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Implementation Stack and Artifacts}
+\small
+\textbf{Core stack}
+\begin{itemize}
+  \item Python + LlamaIndex + ChromaDB + Ollama + Streamlit
+\end{itemize}
+
+\textbf{Main modules}
+\begin{itemize}
+  \item \texttt{src/01\_data\_prep.py}
+  \item \texttt{src/02\_build\_index.py}
+  \item \texttt{src/03\_rag\_pipeline.py}
+  \item \texttt{src/04\_app.py}
+  \item \texttt{src/05\_eval\_metrics.py}
+\end{itemize}
+
+\textbf{Generated outputs}
+\begin{itemize}
+  \item \texttt{outputs/eval/rag\_eval\_*.json/.csv}
+  \item \texttt{outputs/eval/rag\_metrics\_*.json/.csv}
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Docker Deployment}
+\small
+\textbf{Container setup}
+\begin{itemize}
+  \item \texttt{Dockerfile} + \texttt{docker-compose.yml}
+  \item service: \texttt{rag-app}
+\end{itemize}
+
+\textbf{Host Ollama access}
+\begin{itemize}
+  \item container uses \texttt{http://host.docker.internal:11434}
+  \item host gateway mapping enabled in compose
+\end{itemize}
+
+\textbf{Persistent data mounts}
+\begin{itemize}
+  \item \texttt{./data:/app/data}
+  \item \texttt{./vector\_db:/app/vector\_db}
+\end{itemize}
+
+\textbf{Why this matters}
+\begin{itemize}
+  \item vector index survives container restart/rebuild
+  \item app can run in Docker while using host Ollama models
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Baseline vs RAG Evaluation Setup}
+\small
+\textbf{Baseline path}
+\begin{itemize}
+  \item direct LLM answer without retrieval
+\end{itemize}
+
+\textbf{RAG path}
+\begin{itemize}
+  \item retrieve top-k chunks \(\rightarrow\) generate grounded answer
+  \item score chunks by cosine similarity:
+  \[
+  s_i=\cos(e_q,e_i)=\frac{e_q^\top e_i}{\|e_q\|_2\|e_i\|_2}
+  \]
+  \item retrieve \(\mathcal{I}_k(q)=\operatorname{TopK}_{i}(s_i)\), with \(k=3\)
+\end{itemize}
+
+\textbf{Run used in this presentation (2026-04-23)}
+\begin{itemize}
+  \item 15 precomputed evaluation questions
+  \item file: \texttt{rag\_eval\_20260423T113135Z.json}
+  \item same model family for fair comparison
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Evaluation Results}
+\small
+\begin{table}
+\centering
+\begin{tabular}{lr}
+\toprule
+Metric & Value \\
+\midrule
+Questions & 15 \\
+Baseline non-empty rate & 100.00\% \\
+RAG non-empty rate & 100.00\% \\
+Baseline avg words & 264.40 \\
+RAG avg words & 126.93 \\
+RAG/Baseline length ratio & 0.48 \\
+Avg retrieved sources/question & 2.73 \\
+Questions with sources & 100.00\% \\
+Unique retrieved sources & 37 \\
+\bottomrule
+\end{tabular}
+\end{table}
+\end{frame}
+
+\begin{frame}{Qualitative Comparison (Examples)}
+\small
+\textbf{Case A: Scope 1 targets}
+\begin{itemize}
+  \item Baseline: generic global list (317 words)
+  \item RAG: COP + MMM with cited report chunks
+  \item Sources: \texttt{COP\_2021}, \texttt{CHD\_2021}, \texttt{MMM\_2021}
+\end{itemize}
+
+\textbf{Case B: Fleet/logistics electrification}
+\begin{itemize}
+  \item Baseline: broad industry examples (272 words)
+  \item RAG: focused answer with EIX + FDX evidence
+  \item Sources: \texttt{EIX\_2019}, \texttt{EIX\_2022}, \texttt{FDX\_2020}
+\end{itemize}
+
+\textbf{Case C: External frameworks}
+\begin{itemize}
+  \item Baseline: generic framework list (286 words)
+  \item RAG: identifies GRI and cites report chunks
+  \item Sources: \texttt{IPG\_2019}, \texttt{SLB\_2019}, \texttt{JCI\_2019}
+\end{itemize}
+\end{frame}
+
+\section{Extra Task: UI}
+
+\begin{frame}{Streamlit UI}
+\small
+\textbf{Implemented interface}
+\begin{itemize}
+  \item \texttt{src/04\_app.py}
+  \item run locally: \texttt{./scripts/run\_app.sh}
+\end{itemize}
+
+\textbf{Features}
+\begin{itemize}
+  \item free-form query input
+  \item demo question bank and demo run mode
+  \item precomputed Baseline-vs-RAG loader (15 ready cases)
+  \item answer + retrieved chunk visualization
+  \item source metadata and session history export
+\end{itemize}
+\textbf{Presentation benefit}
+\begin{itemize}
+  \item instant comparison demos without waiting for live generation
+  \item switch to live question only if requested by professor
+\end{itemize}
+\end{frame}
+
+\section{Discussion}
+
+\begin{frame}{Error Analysis and Limitations}
+\small
+\textbf{Common issues}
+\begin{itemize}
+  \item some chunks include noisy text from report preprocessing
+  \item occasional over-inference beyond explicit evidence
+\end{itemize}
+
+\textbf{Current limitations}
+\begin{itemize}
+  \item metrics are mostly structural, not full human-judged factuality
+  \item data cleaning is partly inherited from upstream CSV processing
+\end{itemize}
+
+\textbf{Next steps}
+\begin{itemize}
+  \item add reranking and citation verification
+  \item add manual answer grading protocol
+  \item test adaptive retrieval depth
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Team Contributions}
+\small
+\textbf{Kamal Ahmadov}
+\begin{itemize}
+  \item core RAG pipeline integration
+  \item evaluation and metrics workflow
+  \item report assembly and analysis
+\end{itemize}
+
+\textbf{Rufat Guliyev}
+\begin{itemize}
+  \item data/index workflow support
+  \item Streamlit UI implementation and refinement
+  \item reproducibility scripts and documentation checks
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Conclusion}
+\small
+\begin{itemize}
+  \item Project 5 delivers a complete end-to-end RAG system.
+  \item Assignment requirements are covered: data prep, embeddings, vector DB, retriever, LLM, baseline comparison, and UI.
+  \item Main takeaway: retrieval grounding improves traceability and dataset alignment compared to LLM-only responses.
+\end{itemize}
+\end{frame}
+
+\begin{frame}{Questions}
+\centering
+\Large Thank you
+
+\vspace{0.8em}
+\normalsize Questions and discussion
+\end{frame}
+
+\end{document}
