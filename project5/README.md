@@ -74,13 +74,16 @@ Open Streamlit at `http://localhost:8501`.
 
 ## Docker Quick Start
 ```bash
+cp .env.example .env
 ./scripts/setup.sh
 ./scripts/prepare_data.sh
 ./scripts/build_index.sh --rebuild
 ./scripts/docker_up.sh
 ```
 
-The containerized app uses host Ollama via `http://host.docker.internal:11434`.
+Docker notes:
+- Containerized app uses host Ollama via `DOCKER_OLLAMA_BASE_URL` (default `http://host.docker.internal:11434`).
+- Vector index is persisted on host through bind mount `./vector_db:/app/vector_db`.
 
 ## Evaluation Commands
 Run baseline vs RAG and write machine-readable outputs:
