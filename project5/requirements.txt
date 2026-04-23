@@ -2,7 +2,7 @@ llama-index
 llama-index-llms-ollama
 llama-index-embeddings-ollama
 llama-index-vector-stores-chroma
-chromadb==0.5.23
-posthog<4
+chromadb>=0.6
+posthog
 streamlit
 pandas

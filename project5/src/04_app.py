@@ -205,6 +205,8 @@ def ensure_session_state() -> None:
         st.session_state["query_history"] = []
     if "run_demo_set" not in st.session_state:
         st.session_state["run_demo_set"] = False
+    if "compare_result" not in st.session_state:
+        st.session_state["compare_result"] = None
 
 
 def format_score(score: float | None) -> str:
@@ -390,7 +392,7 @@ def load_query_engine(
         refine_template=refine_template,
     )
     vector_count = count_vectors_from_sqlite(chroma_path, collection_name)
-    return query_engine, vector_count
+    return query_engine, vector_count, llm
 
 
 def render_response(entry: dict[str, Any]) -> None:
@@ -434,6 +436,90 @@ def run_demo_set(query_engine) -> None:
             )
 
 
+def render_compare_tab(llm, query_engine) -> None:
+    st.markdown("### Baseline vs RAG Comparison")
+    st.caption(
+        "Ask the same question to the bare LLM (no retrieval) and to the full RAG pipeline. "
+        "Use this to see where retrieval adds grounding and where the baseline hallucinates or drifts."
+    )
+
+    with st.form("compare_form"):
+        compare_question = st.text_area(
+            "Question",
+            height=110,
+            placeholder="Ask about emissions targets, governance, diversity metrics, or any ESG topic.",
+        )
+        run_col, clear_col = st.columns(2)
+        compare_submitted = run_col.form_submit_button("Compare", use_container_width=True)
+        compare_cleared = clear_col.form_submit_button("Clear", use_container_width=True)
+
+    if compare_cleared:
+        st.session_state["compare_result"] = None
+        st.rerun()
+
+    if compare_submitted:
+        if not compare_question.strip():
+            st.warning("Please enter a non-empty question.")
+        else:
+            q = compare_question.strip()
+            with st.spinner("Running baseline (LLM only)..."):
+                baseline_text = llm.complete(q).text.strip()
+            with st.spinner("Running RAG (retrieval + generation)..."):
+                rag_response = query_engine.query(q)
+                rag_text = str(rag_response).strip()
+            sources = [source_node_to_payload(s) for s in (rag_response.source_nodes or [])]
+            st.session_state["compare_result"] = {
+                "question": q,
+                "baseline": baseline_text,
+                "rag": rag_text,
+                "sources": sources,
+            }
+
+    result = st.session_state.get("compare_result")
+    if not result:
+        st.caption("Results will appear here after you submit a question.")
+        return
+
+    st.markdown(f"**Question:** {result['question']}")
+    st.markdown("---")
+
+    col_b, col_r = st.columns(2, gap="large")
+
+    with col_b:
+        st.markdown("#### Baseline — LLM only")
+        st.markdown(
+            '<div class="answer-card">',
+            unsafe_allow_html=True,
+        )
+        st.write(result["baseline"])
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with col_r:
+        st.markdown("#### RAG — retrieval + generation")
+        st.markdown(
+            '<div class="answer-card">',
+            unsafe_allow_html=True,
+        )
+        st.write(result["rag"])
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    with st.expander("Retrieved Context Chunks", expanded=False):
+        sources = result.get("sources", [])
+        if not sources:
+            st.info("No source chunks were returned.")
+        else:
+            for idx, source in enumerate(sources, start=1):
+                st.markdown(f"#### Chunk {idx}")
+                st.markdown(
+                    f'<div class="chunk-meta"><strong>Source:</strong> {source.get("source_file", "unknown")} | '
+                    f'<strong>Ticker:</strong> {source.get("ticker", "N/A")} | '
+                    f'<strong>Year:</strong> {source.get("year", "N/A")} | '
+                    f'<strong>Similarity:</strong> {format_score(source.get("similarity"))}</div>',
+                    unsafe_allow_html=True,
+                )
+                st.code(source.get("text", ""))
+
+
 def main() -> None:
     cfg = runtime_config_from_env()
     top_k = int(os.getenv("SIMILARITY_TOP_K", "3"))
@@ -459,7 +545,7 @@ def main() -> None:
     )
 
     try:
-        query_engine, vector_count = load_query_engine(
+        query_engine, vector_count, llm = load_query_engine(
             cfg.chroma_path,
             cfg.chroma_collection,
             cfg.ollama_base_url,
@@ -479,41 +565,44 @@ def main() -> None:
 
     render_history_sidebar()
 
-    if st.session_state.pop("run_demo_set", False):
-        run_demo_set(query_engine)
-        st.markdown("---")
+    tab_ask, tab_compare = st.tabs(["Ask the System", "Baseline vs RAG"])
 
-    st.markdown("### Ask the System")
-    with st.form("query_form"):
-        question = st.text_area(
-            "Question",
-            key="question_input",
-            height=115,
-            placeholder="Ask about emissions, governance, social impact, diversity, or reporting frameworks.",
-        )
-        submit_col, clear_col = st.columns(2)
-        submitted = submit_col.form_submit_button("Generate Answer", use_container_width=True)
-        clear_clicked = clear_col.form_submit_button("Clear", use_container_width=True)
+    with tab_ask:
+        if st.session_state.pop("run_demo_set", False):
+            run_demo_set(query_engine)
+            st.markdown("---")
 
-    if clear_clicked:
-        st.session_state["question_input"] = ""
-        st.session_state["auto_submit"] = False
-        st.rerun()
+        st.markdown("### Ask the System")
+        with st.form("query_form"):
+            question = st.text_area(
+                "Question",
+                key="question_input",
+                height=115,
+                placeholder="Ask about emissions, governance, social impact, diversity, or reporting frameworks.",
+            )
+            submit_col, clear_col = st.columns(2)
+            submitted = submit_col.form_submit_button("Generate Answer", use_container_width=True)
+            clear_clicked = clear_col.form_submit_button("Clear", use_container_width=True)
 
-    auto_submit = st.session_state.pop("auto_submit", False)
-    should_run = submitted or auto_submit
+        if clear_clicked:
+            st.session_state["question_input"] = ""
+            st.session_state["auto_submit"] = False
+            st.rerun()
 
-    if not should_run:
-        st.caption("Tip: use the sidebar prompts or run the demo set to showcase retrieval quality.")
-        return
+        auto_submit = st.session_state.pop("auto_submit", False)
+        should_run = submitted or auto_submit
 
-    if not question.strip():
-        st.warning("Please enter a non-empty question.")
-        return
+        if not should_run:
+            st.caption("Tip: use the sidebar prompts or run the demo set to showcase retrieval quality.")
+        elif not question.strip():
+            st.warning("Please enter a non-empty question.")
+        else:
+            with st.spinner("Running retrieval and generation..."):
+                entry = run_query_and_store(question.strip(), query_engine)
+            render_response(entry)
 
-    with st.spinner("Running retrieval and generation..."):
-        entry = run_query_and_store(question.strip(), query_engine)
-    render_response(entry)
+    with tab_compare:
+        render_compare_tab(llm, query_engine)
 
 
 if __name__ == "__main__":
