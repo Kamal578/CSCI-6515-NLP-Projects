@@ -1,0 +1,20 @@
+services:
+  rag-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8501:8501"
+    environment:
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      OLLAMA_LLM_MODEL: llama3.1
+      OLLAMA_EMBED_MODEL: nomic-embed-text
+      CHROMA_PATH: vector_db
+      CHROMA_COLLECTION: sp500_esg_reports
+      ANONYMIZED_TELEMETRY: "FALSE"
+      SIMILARITY_TOP_K: "3"
+    volumes:
+      - ./data:/app/data
+      - ./vector_db:/app/vector_db
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
