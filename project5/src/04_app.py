@@ -207,6 +207,8 @@ def ensure_session_state() -> None:
         st.session_state["run_demo_set"] = False
     if "compare_result" not in st.session_state:
         st.session_state["compare_result"] = None
+    if "preset_compare_idx" not in st.session_state:
+        st.session_state["preset_compare_idx"] = 0
 
 
 def format_score(score: float | None) -> str:
@@ -436,12 +438,99 @@ def run_demo_set(query_engine) -> None:
             )
 
 
+def load_latest_presentation_eval(min_questions: int = 15) -> tuple[Path | None, dict[str, Any] | None]:
+    output_dir = resolve_from_root("outputs/eval")
+    if not output_dir.exists():
+        return None, None
+
+    for path in sorted(output_dir.glob("rag_eval_*.json"), reverse=True):
+        try:
+            payload = json.loads(path.read_text(encoding="utf-8"))
+        except Exception:
+            continue
+
+        if not isinstance(payload, dict):
+            continue
+
+        records = payload.get("records")
+        if not isinstance(records, list):
+            continue
+
+        question_count = int(payload.get("question_count", len(records)))
+        if question_count < min_questions:
+            continue
+
+        return path, payload
+
+    return None, None
+
+
+def record_to_compare_result(record: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "question": str(record.get("question", "")),
+        "baseline": str(record.get("baseline_answer", "")),
+        "rag": str(record.get("rag_answer", "")),
+        "sources": list(record.get("retrieved_chunks", []) or []),
+    }
+
+
+def render_presentation_compare_loader() -> None:
+    st.markdown("#### Ready Demo Cases (Precomputed)")
+    st.caption(
+        "Load precomputed Baseline vs RAG examples instantly for presentation. "
+        "Use manual compare below only when a new live question is requested."
+    )
+
+    eval_path, payload = load_latest_presentation_eval(min_questions=15)
+    if payload is None or eval_path is None:
+        st.info(
+            "No precomputed 15-case comparison file found. "
+            "Generate it with: `python src/03_rag_pipeline.py --questions-file data/presentation_questions_15.txt`"
+        )
+        return
+
+    records = payload.get("records", [])
+    if not records:
+        st.info("Precomputed comparison file has no records.")
+        return
+
+    max_idx = len(records) - 1
+    current_idx = int(st.session_state.get("preset_compare_idx", 0))
+    current_idx = min(max(current_idx, 0), max_idx)
+
+    selected_idx = st.selectbox(
+        "Select precomputed comparison",
+        options=range(len(records)),
+        index=current_idx,
+        format_func=lambda idx: f"{idx + 1}. {str(records[idx].get('question', ''))}",
+    )
+    st.session_state["preset_compare_idx"] = selected_idx
+
+    col_a, col_b = st.columns(2)
+    if col_a.button("Load Selected Case", use_container_width=True):
+        st.session_state["compare_result"] = record_to_compare_result(records[selected_idx])
+        st.rerun()
+    if col_b.button("Load Next Case", use_container_width=True):
+        next_idx = (selected_idx + 1) % len(records)
+        st.session_state["preset_compare_idx"] = next_idx
+        st.session_state["compare_result"] = record_to_compare_result(records[next_idx])
+        st.rerun()
+
+    generated = str(payload.get("generated_at_utc", "unknown"))
+    st.caption(
+        f"Loaded file: {eval_path.name} | generated_at_utc: {generated} | cases: {len(records)}"
+    )
+
+
 def render_compare_tab(llm, query_engine) -> None:
     st.markdown("### Baseline vs RAG Comparison")
     st.caption(
         "Ask the same question to the bare LLM (no retrieval) and to the full RAG pipeline. "
         "Use this to see where retrieval adds grounding and where the baseline hallucinates or drifts."
     )
+    render_presentation_compare_loader()
+    st.markdown("---")
+    st.markdown("#### Run a New Live Comparison")
 
     with st.form("compare_form"):
         compare_question = st.text_area(
