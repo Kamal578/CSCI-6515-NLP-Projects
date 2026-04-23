@@ -1,0 +1,386 @@
+\documentclass[11pt]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage[a4paper,margin=1in]{geometry}
+\usepackage{booktabs}
+\usepackage{array}
+\usepackage{hyperref}
+\usepackage{enumitem}
+\usepackage{float}
+\usepackage{amsmath,amssymb}
+\setlist{nosep}
+\hypersetup{colorlinks=true,linkcolor=blue,urlcolor=blue,citecolor=blue}
+
+% -----------------------------
+% Key Project 5 numbers
+% -----------------------------
+\newcommand{\docCount}{866}
+\newcommand{\wordCount}{10{,}361{,}942}
+\newcommand{\chunkCount}{24{,}687}
+\newcommand{\chunkMin}{215}
+\newcommand{\chunkMax}{488}
+\newcommand{\chunkMean}{419.73}
+\newcommand{\topK}{3}
+\newcommand{\evalQuestions}{15}
+\newcommand{\baselineAvgWords}{264.40}
+\newcommand{\ragAvgWords}{126.93}
+\newcommand{\lengthRatio}{0.48}
+\newcommand{\avgSources}{2.73}
+\newcommand{\sourceCoverage}{100\%}
+\newcommand{\uniqueSources}{37}
+\newcommand{\profileDate}{2026-04-22}
+\newcommand{\evalDate}{2026-04-23}
+
+\title{Project 5: Retrieval-Augmented Generation (RAG) for ESG Question Answering}
+\author{\textbf{Kamal Ahmadov} \and \textbf{Rufat Guliyev}}
+\date{Spring 2026}
+
+\begin{document}
+\maketitle
+
+\begin{abstract}
+This project implements a complete Retrieval-Augmented Generation (RAG) system for domain-specific question answering over ESG sustainability reports of S\&P 500 companies. The system includes data preparation, strict token-based chunking, embedding generation, vector indexing, top-k retrieval, answer generation with a local LLM, baseline-vs-RAG evaluation, summary metrics, and an interactive Streamlit interface. The implementation is fully local, using Ollama for LLM and embeddings, LlamaIndex for orchestration, and ChromaDB for persistent vector storage.
+\end{abstract}
+
+\section{Motivation}
+General-purpose LLM answers are often fluent but not grounded in project data. For ESG analysis, this is risky because users need traceable answers tied to specific reports. The motivation of this project is to move from generic generation to source-grounded generation where every answer is backed by retrieved context.
+
+The selected setting is corporate ESG reporting. This domain is suitable for RAG because:
+\begin{itemize}
+    \item the corpus is large and document-heavy,
+    \item queries are analytical and cross-document,
+    \item citation and source transparency are important.
+\end{itemize}
+
+\section{Method and System Design}
+\subsection{Domain and Dataset}
+Domain: ESG sustainability reporting for S\&P 500 companies.
+
+Dataset source: Kaggle ESG Sustainability Reports of S\&P 500 Companies.
+
+Local dataset profile (snapshot date: \profileDate):
+\begin{itemize}
+    \item documents/rows: \docCount
+    \item total words: \wordCount
+    \item generated TXT files: \docCount
+\end{itemize}
+
+This exceeds the assignment minimum (50 documents or 10,000+ words).
+
+\subsection{Data Preparation and Chunking}
+Data preparation converts each CSV row into one UTF-8 text report using:
+\begin{itemize}
+    \item \texttt{src/01\_data\_prep.py}
+\end{itemize}
+
+Chunking and indexing use:
+\begin{itemize}
+    \item \texttt{src/02\_build\_index.py}
+\end{itemize}
+
+The chunker applies strict token bounds aligned with the assignment range:
+\begin{itemize}
+    \item min tokens per stored chunk: 201
+    \item max tokens per stored chunk: 499
+    \item target chunk size: 420
+\end{itemize}
+
+Observed index profile:
+\begin{itemize}
+    \item stored chunks: \chunkCount
+    \item chunk token min / max: \chunkMin{} / \chunkMax
+    \item chunk token mean: \chunkMean
+\end{itemize}
+
+\subsection{Tokenization and Chunking Mechanics}
+Tokenization is implemented in \texttt{src/common.py} as whitespace token extraction:
+\[
+\texttt{tokenize(text)} = \texttt{re.findall(r"\\textbackslash S+", text)}
+\]
+
+For a document with \(n\) tokens and chunk bounds \((m, M)\), the chunker computes:
+\[
+k_{\min}=\left\lceil\frac{n}{M}\right\rceil,\quad
+k_{\max}=\left\lfloor\frac{n}{m}\right\rfloor,\quad
+k_{\text{target}}=\text{round}\left(\frac{n}{420}\right)
+\]
+and selects:
+\[
+k=\min\left(\max(k_{\text{target}},k_{\min}),k_{\max}\right)
+\]
+
+Then tokens are split into near-equal chunk sizes via quotient-remainder allocation (\texttt{base, extra = divmod(n, k)}). If no feasible \(k\) exists (or \(n < m\)), the document is skipped. In the current run profile, 3 documents were skipped for strict-bound infeasibility.
+
+\subsection{RAG Components}
+The implemented RAG system has three main components:
+
+\textbf{Knowledge Base}
+\begin{itemize}
+    \item persistent Chroma collection: \texttt{sp500\_esg\_reports}
+    \item local storage path: \texttt{vector\_db/}
+\end{itemize}
+
+\textbf{Retriever}
+\begin{itemize}
+    \item vector similarity retrieval (cosine) with top-k search
+    \item default retrieval depth: \topK
+\end{itemize}
+
+\textbf{Generator}
+\begin{itemize}
+    \item local Ollama LLM: \texttt{llama3.1}
+    \item retrieval-aware prompt templates in \texttt{src/rag\_prompts.py}
+\end{itemize}
+
+\subsection{System Prompt Design}
+The RAG answer behavior is explicitly controlled by a centralized system prompt in \texttt{src/rag\_prompts.py} (\texttt{ESG\_SYSTEM\_PROMPT}) and injected through:
+\begin{itemize}
+    \item \texttt{rag\_text\_qa\_template\_str()}
+    \item \texttt{rag\_refine\_template\_str()}
+\end{itemize}
+
+Key prompt rules:
+\begin{itemize}
+    \item use retrieved chunks as the only authoritative evidence,
+    \item do not fabricate facts, numbers, dates, or citations,
+    \item separate direct evidence from inference,
+    \item explicitly state uncertainty when evidence is weak or missing.
+\end{itemize}
+
+Required answer contract:
+\begin{itemize}
+    \item sections: \texttt{Answer}, \texttt{Evidence}, optional \texttt{Inference}, optional \texttt{Gaps/Uncertainty},
+    \item citation format: \texttt{[source\_file | ticker | year]}.
+\end{itemize}
+
+This same prompt module is used by both the script pipeline (\texttt{src/03\_rag\_pipeline.py}) and the Streamlit UI (\texttt{src/04\_app.py}), so evaluation and demo behavior remain aligned.
+
+\subsection{Embeddings: Ollama \texttt{nomic-embed-text}}
+Embedding generation uses Ollama model \texttt{nomic-embed-text} as the vectorizer for all indexed chunks.
+
+Implementation points:
+\begin{itemize}
+    \item index-time embedding setup in \texttt{src/02\_build\_index.py},
+    \item query-time embedding setup in \texttt{src/03\_rag\_pipeline.py} and \texttt{src/04\_app.py}.
+\end{itemize}
+
+Each chunk is embedded and stored in Chroma together with metadata fields:
+\texttt{source\_file}, \texttt{ticker}, \texttt{year}, \texttt{chunk\_id}, and \texttt{token\_count}. The retriever then performs vector similarity search over these embeddings (default \(\text{top-k}=3\)).
+
+\subsection{Mathematical View: Embedding and Retrieval}
+Let \(c_i\) denote chunk \(i\), and \(q\) denote a user query. The embedding model is an encoder:
+\[
+f_{\theta}: \mathcal{T} \rightarrow \mathbb{R}^{d},
+\qquad
+e_i = f_{\theta}(c_i), \quad e_q = f_{\theta}(q)
+\]
+where \(\mathcal{T}\) is text space and \(d\) is embedding dimensionality.
+
+At a high level, tokenized text \(x_{1:m}\) is mapped by a Transformer encoder to contextual states \(h_{1:m}\), then pooled into one dense vector:
+\[
+h_{1:m} = \mathrm{Encoder}_{\theta}(x_{1:m}), \qquad e = \mathrm{Pool}(h_{1:m})
+\]
+and often L2-normalized:
+\[
+\hat{e} = \frac{e}{\|e\|_2}
+\]
+so angular similarity is directly comparable across texts. In practice, contrastive training makes semantically related texts closer and unrelated texts farther in embedding space.
+
+For retrieval, the system computes cosine similarity between query embedding and all stored chunk embeddings:
+\[
+s_i = \cos(\hat{e}_q, \hat{e}_i) = \frac{\hat{e}_q^\top \hat{e}_i}{\|\hat{e}_q\|_2 \|\hat{e}_i\|_2}
+\]
+and selects:
+\[
+\mathcal{I}_k(q) = \operatorname{TopK}_{i}(s_i)
+\]
+with \(k=\topK\) (default \(k=3\)). The retrieved set \(\{c_i \mid i \in \mathcal{I}_k(q)\}\) is passed as grounding context to the LLM generator.
+
+\subsection{Implementation Stack}
+\begin{itemize}
+    \item LLM: Ollama \texttt{llama3.1}
+    \item embeddings: Ollama \texttt{nomic-embed-text}
+    \item vector DB: ChromaDB
+    \item orchestration: LlamaIndex
+    \item UI: Streamlit
+    \item deployment: Docker + Docker Compose
+\end{itemize}
+
+End-to-end query flow:
+\[
+\text{Query} \rightarrow \text{Retriever(top-k)} \rightarrow \text{Context Chunks} \rightarrow \text{LLM Answer}
+\]
+
+\subsection{Docker Deployment}
+The project includes a containerized runtime via \texttt{Dockerfile} and \texttt{docker-compose.yml}. The deployed service is \texttt{rag-app}.
+
+Docker runtime behavior:
+\begin{itemize}
+    \item containerized app uses host Ollama endpoint via \texttt{http://host.docker.internal:11434},
+    \item host-to-container resolution is enabled with \texttt{extra\_hosts: host.docker.internal:host-gateway},
+    \item bind mounts:
+    \begin{itemize}
+        \item \texttt{./data:/app/data}
+        \item \texttt{./vector\_db:/app/vector\_db}
+    \end{itemize}
+\end{itemize}
+
+The \texttt{vector\_db} mount ensures index persistence across container restarts/rebuilds, so rebuilding the image does not erase the existing vector store.
+
+\section{Experiments and Evaluation}
+\subsection{Experimental Setup}
+Evaluation compares two paths in \texttt{src/03\_rag\_pipeline.py}:
+\begin{itemize}
+    \item \textbf{Baseline}: direct LLM answer without retrieval
+    \item \textbf{RAG}: retrieval + context-grounded generation
+\end{itemize}
+
+For this report, we executed a presentation-focused 15-question baseline-vs-RAG run on \evalDate{} and then computed metrics with \texttt{src/05\_eval\_metrics.py}.
+
+Evaluation artifacts:
+\begin{itemize}
+    \item \texttt{outputs/eval/rag\_eval\_20260423T113135Z.json}
+    \item \texttt{outputs/eval/rag\_metrics\_20260423T113144Z.json}
+\end{itemize}
+
+\subsection{Quantitative Results}
+\begin{table}[H]
+\centering
+\begin{tabular}{lr}
+\toprule
+\textbf{Metric} & \textbf{Value} \\
+\midrule
+Questions evaluated & \evalQuestions \\
+Baseline non-empty rate & 100.00\% \\
+RAG non-empty rate & 100.00\% \\
+Baseline average words & \baselineAvgWords \\
+RAG average words & \ragAvgWords \\
+RAG/Baseline length ratio & \lengthRatio \\
+Avg retrieved sources per question & \avgSources \\
+Questions with at least 1 source & \sourceCoverage \\
+Unique retrieved sources & \uniqueSources \\
+\bottomrule
+\end{tabular}
+\caption{Baseline vs RAG summary metrics (Project 5 evaluation run on \evalDate{}).}
+\label{tab:main-results}
+\end{table}
+
+\subsection{Qualitative Comparison}
+A representative behavior pattern is consistent across evaluated prompts:
+\begin{itemize}
+    \item Baseline answers are broad and generic, often not tied to dataset entities.
+    \item RAG answers reference retrieved report files and provide grounded evidence snippets.
+\end{itemize}
+
+\subsection{Example Baseline-vs-RAG Cases (from 15-case set)}
+\textbf{Case A: Scope 1 targets}
+\begin{itemize}
+    \item Question: Which companies discuss Scope 1 emissions targets and target years?
+    \item Baseline: long generic list of global companies (317 words), not constrained to retrieved corpus.
+    \item RAG: short evidence-grounded answer naming COP and MMM with cited chunks.
+    \item Retrieved sources: \texttt{COP\_2021.txt}, \texttt{CHD\_2021.txt}, \texttt{MMM\_2021.txt}.
+\end{itemize}
+
+\textbf{Case B: Fleet electrification}
+\begin{itemize}
+    \item Question: Which companies mention electrification of fleets or logistics?
+    \item Baseline: broad industry examples (272 words), mostly uncited and non-corpus-specific.
+    \item RAG: focused answer naming EIX and FDX with retrieved evidence.
+    \item Retrieved sources: \texttt{EIX\_2019.txt}, \texttt{EIX\_2022.txt}, \texttt{FDX\_2020.txt}.
+\end{itemize}
+
+\textbf{Case C: External reporting frameworks}
+\begin{itemize}
+    \item Question: What external reporting frameworks are most frequently referenced?
+    \item Baseline: generic framework overview (286 words).
+    \item RAG: identifies GRI as dominant and cites concrete report chunks.
+    \item Retrieved sources: \texttt{IPG\_2019.txt}, \texttt{SLB\_2019.txt}, \texttt{JCI\_2019.txt}.
+\end{itemize}
+
+\section{Extra Task: User Interface}
+The interactive UI is implemented in \texttt{src/04\_app.py} and launched with:
+\begin{verbatim}
+./scripts/run_app.sh
+\end{verbatim}
+
+UI capabilities:
+\begin{itemize}
+    \item free-form question input
+    \item curated demo prompt bank
+    \item precomputed presentation-ready Baseline-vs-RAG loader (15 cases)
+    \item answer rendering with retrieved chunk evidence
+    \item source metadata display (file, ticker, year, similarity)
+    \item session history and export options
+\end{itemize}
+
+Presentation precompute workflow:
+\begin{verbatim}
+python src/03_rag_pipeline.py --questions-file data/presentation_questions_15.txt
+\end{verbatim}
+The UI automatically finds the latest \texttt{rag\_eval\_*.json} file with at least 15 questions and lets the presenter load these cases instantly.
+
+\section{Error Analysis and Limitations}
+\subsection{Observed Failure Modes}
+\begin{itemize}
+    \item Some retrieved chunks are noisy due to OCR/text-preprocessing artifacts in source reports.
+    \item At times, RAG answers infer more than explicitly stated in the retrieved text.
+    \item Similarity retrieval can return semantically adjacent but not perfectly targeted chunks.
+\end{itemize}
+
+\subsection{Current Limitations}
+\begin{enumerate}
+    \item Metrics are currently structural (coverage/length/source-use) rather than semantic correctness metrics judged by humans.
+    \item Data cleaning is mostly upstream in the provided CSV, not deeply re-engineered in this project.
+    \item Retrieval uses a fixed top-k; adaptive retrieval depth is not implemented.
+\end{enumerate}
+
+\subsection{Future Improvements}
+\begin{itemize}
+    \item add manual relevance grading for a benchmark question set,
+    \item add reranking step after initial retrieval,
+    \item incorporate citation-aware answer post-validation,
+    \item test domain-specific prompt variants and retrieval filters by ticker/year.
+\end{itemize}
+
+\section{Reproducibility and Packaging}
+Project 5 is packaged with reproducible scripts and Docker support:
+\begin{itemize}
+    \item setup / preflight: \texttt{scripts/setup.sh}, \texttt{scripts/preflight.sh}
+    \item data prep / index build: \texttt{scripts/prepare\_data.sh}, \texttt{scripts/build\_index.sh}
+    \item evaluation / metrics: \texttt{scripts/evaluate.sh}, \texttt{scripts/eval\_metrics.sh}
+    \item UI: \texttt{scripts/run\_app.sh}
+    \item Docker: \texttt{scripts/docker\_up.sh}, \texttt{scripts/docker\_down.sh}
+\end{itemize}
+
+Local tests currently pass:
+\begin{itemize}
+    \item \texttt{30 passed}
+\end{itemize}
+
+\section{Team Member Contributions}
+\textbf{Kamal Ahmadov}
+\begin{itemize}
+    \item implemented and integrated core RAG pipeline modules,
+    \item led evaluation/metrics scripts and experiment execution,
+    \item prepared report structure and final analysis narrative.
+\end{itemize}
+
+\textbf{Rufat Guliyev}
+\begin{itemize}
+    \item contributed to data preparation and indexing workflow,
+    \item implemented and refined Streamlit interface and UX flows,
+    \item contributed to reproducibility scripts and documentation quality checks.
+\end{itemize}
+
+\section{Conclusion}
+Project 5 delivers a complete end-to-end RAG system that satisfies the assignment scope: domain selection, dataset preparation, chunking, embeddings, vector storage, retrieval, generation, baseline comparison, UI, and reproducible artifacts. The main empirical result is that RAG consistently produces grounded, source-linked answers while baseline LLM responses are longer but less tied to the project corpus. The system is operational, testable, and ready for class presentation and submission.
+
+\section*{References}
+\begin{itemize}
+    \item Kaggle. ESG Sustainability Reports of S\&P 500 Companies.
+    \item LlamaIndex Documentation.
+    \item ChromaDB Documentation.
+    \item Ollama Documentation.
+\end{itemize}
+
+\end{document}
